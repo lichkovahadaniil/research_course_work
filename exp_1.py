@@ -138,22 +138,121 @@ def build_metrics(dmain_path, problem_path, plan_path):
         'FD': plan_downward_metric(dmain_path, problem_path, plan_path)
     }
 
+
+
+
 def actions_list(domain, problem):
     dp = pddlpy.DomainProblem(domain, problem)
     return list(dp.operators()) # list of actions
 
-def shuffle(domain, problem):
+def extract_actions_blocks(text):
+    """
+    returns:
+    header, actions (list), footer
+    consider comments and empty lines
+    """
+    actions = []
+    header = []
+    footer = []
+
+    i = 0
+    n = len(text)
+
+    in_comment = False
+    found_first_action = False
+
+    while i < n:
+        # Обработка комментариев
+        if text[i] == ';':
+            in_comment = True
+
+        if in_comment:
+            if not found_first_action:
+                header.append(text[i])
+            else:
+                footer.append(text[i])
+
+            if text[i] == '\n':
+                in_comment = False
+
+            i += 1
+            continue
+
+        # Обработка действий
+        if text[i:i+8] == "(:action":
+            found_first_action = True
+
+            start = i
+            depth = 0
+
+            while i < n:
+                if text[i] == ';':  # комментарий внутри action
+                    while i < n and text[i] != '\n':
+                        i += 1
+                    continue
+
+                if text[i] == '(':
+                    depth += 1
+                elif text[i] == ')':
+                    depth -= 1
+
+                i += 1
+
+                if depth == 0:
+                    actions.append(text[start:i])
+                    break
+
+            continue
+
+        # --- обычный текст (не комментарий и не действие) ---
+        if not found_first_action:
+            # Добавляем в header
+            if text[i] != '\n' and not (text[i] == ' ' and text[i-1] == ' '):  # Пропуск лишних пробелов
+                header.append(text[i])
+        else:
+            # Добавляем в footer
+            if text[i] != '\n' and not (text[i] == ' ' and text[i-1] == ' '):  # Пропуск лишних пробелов
+                footer.append(text[i])
+
+        i += 1
+
+    return "".join(header), actions, "".join(footer)
+
+
+random.seed(52)
+def random_order(domain, problem, random_domains: int):
+    f'''generate {random_domains} random orders in transferred domain'''
+    actions = actions_list(domain, problem) # canonical
+    new_order = []
+
+    for i in range(random_domains):
+        random.shuffle(actions)
+        new_order.append(actions)
+    
+    return new_order
+
+
+        
+
+
+
+
+
+def shuffle(domain, problem, shuffle_path='domains/shuffle'):
     '''
     Returns domains:
     1 - canonical;
-    2 - Alphabetical;
-    3 - Reverse;
-    4 - Random;
-    5 - Optimal;
-    6 - With dispersion;'''
+    2 - Random with average;
+    3 - Optimal;
+    4 - With dispersion;
+    5 - group by actions type (using llm)
+    6 - sort by frequency of occurrence in the optimal plan
+    7 - actions with fewer  preconditions
+    '''
 
-    actions = actions_list(domain, problem)
-    
+    actions = actions_list(domain, problem) 
+    random_order = random_order(domain, problem)
+
 
 
 
