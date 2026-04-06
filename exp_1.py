@@ -232,12 +232,6 @@ def random_order(domain, problem, random_domains: int):
     return new_order
 
 
-        
-
-
-
-
-
 def shuffle(domain, problem, shuffle_path='domains/shuffle'):
     '''
     Returns domains:
@@ -252,11 +246,6 @@ def shuffle(domain, problem, shuffle_path='domains/shuffle'):
 
     actions = actions_list(domain, problem) 
     random_order = random_order(domain, problem)
-
-
-
-
-
 
 
 print(build_metrics(DOMAIN, PROBLEM, plan_path), actions_list(DOMAIN, PROBLEM))

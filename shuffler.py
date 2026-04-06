@@ -1,13 +1,12 @@
 from dotenv import load_dotenv
+from checker import run_downward_optimal
 from groq import Groq
 import os
 import subprocess # like terminal commands in python
 import re
 import pddlpy
 import random
-
-DOMAIN = 'domains/original/blocksworld/domain.pddl'
-PROBLEM = 'domains/original/blocksworld/instances/instance-1.pddl'
+from vars import DOMAIN, PROBLEM, OPTIMAL_PLAN
 
 random.seed(52)
 
@@ -88,6 +87,32 @@ def random_order(domain, problem, random_domains: int):
     
     return new_order
 
+def get_plan_order(plan_text: str, canonical_order_list: list) -> list:
+    """
+    Извлекает порядок действий в той последовательности,
+    в которой они впервые появляются в оптимальном плане.
+    Возвращает список имён действий в порядке первого появления.
+    """
+    # Извлекаем все имена действий из плана
+    action_names = re.findall(r'\(([\w-]+)', plan_text)
+    
+    # Оставляем только те, которые есть в домене
+    seen = set()
+    plan_order = []
+    
+    for name in action_names:
+        if name in canonical_order_list and name not in seen:
+            seen.add(name)
+            plan_order.append(name)
+            print(name)
+    
+    # Если в плане использованы не все действия — добавляем оставшиеся
+    # в конец в оригинальном canonical порядке (stable)
+    for act in canonical_order_list:
+        if act not in seen:
+            plan_order.append(act)
+    
+    return plan_order
 
 def shuffle(domain, problem, shuffle_path='domains/shuffle'):
     '''
@@ -102,7 +127,8 @@ def shuffle(domain, problem, shuffle_path='domains/shuffle'):
     '''
     names = ['blocksworld']
     randoms = 10
-
+    cost, output = run_downward_optimal(DOMAIN, PROBLEM, OPTIMAL_PLAN) # generate optimal plan in OPTIMAL_PLAN (path)
+    
     with open(domain, 'r', encoding='utf-8') as f:
         domain_text = f.read()
 
@@ -110,7 +136,9 @@ def shuffle(domain, problem, shuffle_path='domains/shuffle'):
 
     canonical_order_list = actions_list(domain, problem) 
     random_order_list = random_order(domain, problem, randoms)
-
+    with open(OPTIMAL_PLAN, 'r', encoding='utf-8') as f:
+        optimal_plan_text=f.read()
+    optimal_order_list = get_plan_order(optimal_plan_text, canonical_order_list)
 
     action_body = {}
 
@@ -135,6 +163,13 @@ def shuffle(domain, problem, shuffle_path='domains/shuffle'):
             f.write(footer)
 
 
-    return action_body, random_order_list
+    with open(f'{shuffle_path}/{names[0]}/domain_optimal.pddl', 'w', encoding='utf-8') as f:
+        f.write(header)
+        for i in range(len(optimal_order_list)):
+            f.write(action_body[optimal_order_list[i]])
+
+        f.write(footer)
+    
+    return action_body, random_order_list, optimal_order_list
 
 print(shuffle(DOMAIN, PROBLEM))

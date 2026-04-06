@@ -21,11 +21,11 @@ def get_plan_cost(plan_path):
     actions = [l for l in lines if l.strip() and not l.startswith(';')] # if l.strip() is True (non empty)
     return len(actions)
 
-def run_downward_optimal(domain_path, problem_path):
+def run_downward_optimal(domain_path, problem_path, optimal_plan_path='plans/plan_1_optimal.txt'):
     res = subprocess.run(
         [
             '/Users/daniillickovaha/downward/fast-downward.py',
-            '--plan-file', 'plans/plan_1_optimal.txt', # save optimal plan in file
+            '--plan-file', optimal_plan_path, # save optimal plan in file
             domain_path,
             problem_path,
             '--search', # flag, after that begin a configuration of the planer 'brain'
