@@ -1,5 +1,6 @@
 import subprocess # like terminal commands in python
 import re
+from pathlib import Path
 
 def validate_plan(domain_path, problem_path, plan_path):
     result = subprocess.run(
@@ -21,7 +22,11 @@ def get_plan_cost(plan_path):
     actions = [l for l in lines if l.strip() and not l.startswith(';')] # if l.strip() is True (non empty)
     return len(actions)
 
-def run_downward_optimal(domain_path, problem_path, optimal_plan_path='plans/plan_1_optimal.txt'):
+def run_downward_optimal(domain_path, problem_path, optimal_plan_path=None):
+
+    if optimal_plan_path is None:
+        optimal_plan_path = f"plans/plan_optimal_{Path(domain_path).stem}_{Path(problem_path).stem}.txt"
+
     res = subprocess.run(
         [
             '/Users/daniillickovaha/downward/fast-downward.py',
@@ -45,9 +50,9 @@ def run_downward_optimal(domain_path, problem_path, optimal_plan_path='plans/pla
     match = re.search(r'Plan cost:\s*(\d+)', output)
     if match:
         cost = int(match.group(1)) # group(0) - full match, group(1) - into first ()
-        return cost, output
+        return cost, output, optimal_plan_path
     else:
-        return None, output
+        return None, output, optimal_plan_path
 
 def compute_gap(llm_cost, optimal_cost):
     if optimal_cost == 0:
@@ -56,7 +61,7 @@ def compute_gap(llm_cost, optimal_cost):
 
 def plan_downward_metric(domain_path, problem_path, plan_path):
     llm_plan_cost = get_plan_cost(plan_path)
-    optimal_plan_cost, log = run_downward_optimal(domain_path, problem_path)
+    optimal_plan_cost, log, OPTIMAL_PLAN = run_downward_optimal(domain_path, problem_path)
 
     if optimal_plan_cost is None:
         return {

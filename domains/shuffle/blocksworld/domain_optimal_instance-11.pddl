@@ -16,15 +16,6 @@
 		   (not (clear ?x))
 		   (not (handempty))
 		   (not (on ?x ?y))))
-
-  (:action pick-up
-	     :parameters (?x - block)
-	     :precondition (and (clear ?x) (ontable ?x) (handempty))
-	     :effect
-	     (and (not (ontable ?x))
-		   (not (clear ?x))
-		   (not (handempty))
-		   (holding ?x)))
   (:action stack
 	     :parameters (?x - block ?y - block)
 	     :precondition (and (holding ?x) (clear ?y))
@@ -42,4 +33,13 @@
 	     (and (not (holding ?x))
 		   (clear ?x)
 		   (handempty)
-		   (ontable ?x))))
+		   (ontable ?x)))
+
+  (:action pick-up
+	     :parameters (?x - block)
+	     :precondition (and (clear ?x) (ontable ?x) (handempty))
+	     :effect
+	     (and (not (ontable ?x))
+		   (not (clear ?x))
+		   (not (handempty))
+		   (holding ?x))))

@@ -2,12 +2,11 @@ from dotenv import load_dotenv
 from groq import Groq
 import os
 import re
+from shuffler import *
+from checker import *
+from vars import *
 
 load_dotenv()
-
-DOMAIN = 'domains/original/blocksworld/domain.pddl'
-PROBLEM = 'domains/original/blocksworld/instances/instance-1.pddl'
-PLAN = 'plans/plan_1.txt'
 
 def call(domain=DOMAIN, problem=PROBLEM, plan_path=PLAN):
     client = Groq(api_key=os.getenv('GROQ_API_KEY'))
