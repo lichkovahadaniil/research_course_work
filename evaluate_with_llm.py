@@ -6,41 +6,61 @@ from api_call import call
 from checker import build_metrics
 
 DOMAIN_TYPES = ['blocksworld', 'rover', 'logistics']
-MODEL_NAME = "openai/gpt-oss-20b"
+MODEL_NAME = "llama-3.3-70b-versatile"
 
 RESULTS_DIR = Path("results") / datetime.now().strftime("%Y-%m-%d_%H-%M")
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+PLANS_BASE = Path("plans")
+PLANS_BASE.mkdir(parents=True, exist_ok=True)
 
 all_results = []
 
 for domain_name in DOMAIN_TYPES:
     shuffle_dir = Path(f"domains/shuffle/{domain_name}")
-    instances_dir = Path(f"domains/original/{domain_name}/instances")
+    if not shuffle_dir.exists():
+        continue
+
+    domain_plans_dir = PLANS_BASE / domain_name
+    domain_plans_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n🚀 Evaluating {domain_name.upper()}...")
 
     for shuffled_path in sorted(shuffle_dir.glob("*.pddl")):
-        # извлекаем instance_name из имени файла
         stem = shuffled_path.stem
-        instance_name = stem.split('_')[-1]   # domain_xxx_instance-5 → instance-5
-        shuffle_type = stem.replace(f"_{instance_name}", "").replace("domain_", "")
 
-        problem_path = instances_dir / f"{instance_name}.pddl"
+        # определяем shuffle_type
+        if 'canonical' in stem:          shuffle_type = 'canonical'
+        elif 'optimal' in stem:          shuffle_type = 'optimal'
+        elif 'frequency' in stem:        shuffle_type = 'frequency'
+        elif 'dispersion' in stem:       shuffle_type = 'dispersion'
+        elif 'random_dispersion_source' in stem: shuffle_type = 'random_dispersion_source'
+        else:                            shuffle_type = 'unknown'
 
-        print(f"   → {domain_name} | {instance_name} | shuffle={shuffle_type}")
+        instance_name = stem.split('_')[-1]
 
-        plan_path = f"plans/{domain_name}_{instance_name}_{shuffle_type}.txt"
+        problem_path = Path(f"domains/original/{domain_name}/instances/{instance_name}.pddl")
+        if not problem_path.exists():
+            continue
+
+        print(f"   → {instance_name} | {shuffle_type}")
+
+        plan_path = domain_plans_dir / f"{instance_name}_{shuffle_type}.txt"
 
         try:
-            call(domain=str(shuffled_path), problem=str(problem_path), plan_path=plan_path)
+            call(domain=str(shuffled_path), problem=str(problem_path), plan_path=str(plan_path))
         except Exception as e:
             print(f"      ❌ API error: {e}")
             continue
 
+        optimal_plan_path = f"plans/optimal/{domain_name}_{instance_name}.txt"
+
         metrics = build_metrics(
             dmain_path=str(shuffled_path),
             problem_path=str(problem_path),
-            plan_path=plan_path
+            plan_path=str(plan_path),
+            optimal_plan_path=optimal_plan_path
         )
-
         result_row = {
             "domain": domain_name,
             "instance": instance_name,
@@ -51,15 +71,26 @@ for domain_name in DOMAIN_TYPES:
             "optimal_cost": metrics['FD'].get('optimal_cost'),
             "gap": metrics['FD'].get('gap'),
             "timestamp": datetime.now().isoformat(),
-            "plan_path": plan_path,
+            "plan_path": str(plan_path),
             "domain_path": str(shuffled_path)
         }
         all_results.append(result_row)
 
-# Save
+# Сохраняем результаты (даже если часть упала)
 df = pd.DataFrame(all_results)
-csv_path = RESULTS_DIR / "full_results.csv"
+csv_path = RESULTS_DIR / "results.csv"
 df.to_csv(csv_path, index=False)
 
-print("\n✅ EVALUATION FINISHED!")
-print(df.groupby(['domain', 'shuffle_type'])['valid_VAL', 'gap'].mean().round(4))
+summary = df.groupby(['domain', 'shuffle_type']).agg({
+    'valid_VAL': 'mean',
+    'gap': ['mean', 'std'],
+    'llm_cost': 'mean'
+}).round(4)
+
+print("\n" + "="*80)
+print("✅ EVALUATION FINISHED!")
+print(summary)
+summary.to_csv(RESULTS_DIR / "summary.csv")
+
+print(f"\nПланы лежат в: plans/{domain_name}/")
+print(f"Результаты: {csv_path}")

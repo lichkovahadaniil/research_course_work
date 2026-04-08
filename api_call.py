@@ -12,48 +12,57 @@ def call(domain=DOMAIN, problem=PROBLEM, plan_path=PLAN):
     client = Groq(api_key=os.getenv('GROQ_API_KEY'))
 
     def read_pddl(path):
-        with open(path, 'r') as f:
+        with open(path, 'r', encoding='utf-8') as f:
             return f.read()
         
     domain_text = read_pddl(domain)
     problem_text = read_pddl(problem)
 
     prompt = f"""
-    You are an expert in PDDL planning.
+You are an expert PDDL planner. Generate ONLY a valid plan.
+No explanations, no comments, no markdown, no extra text.
 
-    Given the following domain and problem, generate only a valid plan.
+Domain:
+{domain_text}
 
-    Domain:
-    {domain_text}
+Problem:
+{problem_text}
 
-    Problem:
-    {problem_text}
-
-    Format example:
-    (move a b c)
-    (stack a b)
-    ...
-
-    Return ONLY the plan as a sequence of actions, one per line.
-    """
+Return ONLY the plan — one action per line:
+(pick-up b)
+(stack b a)
+...
+"""
 
     response = client.chat.completions.create(
-        model='openai/gpt-oss-20b',
-        messages = [
-            {'role': 'user', 'content': prompt}
-        ],
-        temperature=0,
+        model="llama-3.3-70b-versatile",   # ← оставляем, она лучше всего работает
+        messages=[{'role': 'user', 'content': prompt}],
+        temperature=0.0,
+        max_tokens=2048,
     )
 
-    plan = response.choices[0].message.content
+    raw = response.choices[0].message.content.strip()
 
-    def cleaning(plan):
-        actions = re.findall(r"\(.*?\)", plan)
-        return "\n".join(actions)
+    # === СУПЕР-РОБАСТНАЯ ОЧИСТКА ===
+    lines = raw.splitlines()
+    cleaned = []
+    for line in lines:
+        line = line.strip()
+        if line.startswith('(') and line.endswith(')') and len(line) > 5:
+            cleaned.append(line)
 
-    plan = cleaning(plan)
+    # Если ничего не поймали — пробуем жёсткий regex (ловит даже если есть текст вокруг)
+    if not cleaned:
+        cleaned = re.findall(r'\([^(]+?\)', raw)
 
-    with open(plan_path, "w") as f:
-        f.write(plan)
+    final_plan = "\n".join(cleaned)
 
-    return plan
+    if not final_plan:
+        print(f"⚠️  EMPTY PLAN AFTER CLEANING! Raw preview: {raw[:300]}...")
+        final_plan = "; LLM returned empty plan"
+
+    with open(plan_path, "w", encoding='utf-8') as f:
+        f.write(final_plan)
+
+    print(f"      ✓ Plan saved to {plan_path} ({len(cleaned)} actions)")
+    return final_plan
