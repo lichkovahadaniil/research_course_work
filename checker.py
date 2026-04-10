@@ -51,6 +51,19 @@ def run_downward_optimal(domain_path, problem_path, optimal_plan_path=None):
         text=True
     )
 
+    # # not optimal
+    # res = subprocess.run(
+    # [
+    #     '/Users/daniillickovaha/downward/fast-downward.py',
+    #     '--plan-file', str(optimal_plan_path),
+    #     domain_path,
+    #     problem_path,
+    #     '--alias', 'llama-first'  # Вместо ручного --search
+    # ],
+    # capture_output=True,
+    # text=True
+    # )
+
     output = res.stdout + res.stderr
     match = re.search(r'Plan cost:\s*(\d+)', output)
     if match:

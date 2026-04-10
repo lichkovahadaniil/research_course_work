@@ -1,7 +1,7 @@
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
-
+from generate_all_shuffled_domains import natural_sort_key
 from api_call import call
 from checker import build_metrics
 
@@ -21,37 +21,40 @@ for domain_name in DOMAIN_TYPES:
     if not shuffle_dir.exists():
         continue
 
-    domain_plans_dir = PLANS_BASE / domain_name
-    domain_plans_dir.mkdir(parents=True, exist_ok=True)
-
     print(f"\n🚀 Evaluating {domain_name.upper()}...")
 
-    for shuffled_path in sorted(shuffle_dir.glob("*.pddl")):
-        stem = shuffled_path.stem
-
-        # определяем shuffle_type
-        if 'canonical' in stem:          shuffle_type = 'canonical'
-        elif 'optimal' in stem:          shuffle_type = 'optimal'
-        elif 'frequency' in stem:        shuffle_type = 'frequency'
-        elif 'dispersion' in stem:       shuffle_type = 'dispersion'
-        elif 'random_dispersion_source' in stem: shuffle_type = 'random_dispersion_source'
-        else:                            shuffle_type = 'unknown'
-
-        instance_name = stem.split('_')[-1]
+    # Новое: итерируемся по папкам-инстансам
+    for instance_dir in sorted(shuffle_dir.iterdir(), key=lambda d: natural_sort_key(d.name) if d.is_dir() else ""):
+        if not instance_dir.is_dir():
+            continue
+        instance_name = instance_dir.name
 
         problem_path = Path(f"domains/original/{domain_name}/instances/{instance_name}.pddl")
         if not problem_path.exists():
             continue
 
-        print(f"   → {instance_name} | {shuffle_type}")
+        domain_plans_dir = PLANS_BASE / domain_name
+        domain_plans_dir.mkdir(parents=True, exist_ok=True)
 
-        plan_path = domain_plans_dir / f"{instance_name}_{shuffle_type}.txt"
+        for shuffled_path in sorted(instance_dir.glob("domain_*.pddl")):
+            stem = shuffled_path.stem.replace("domain_", "")
 
-        try:
-            call(domain=str(shuffled_path), problem=str(problem_path), plan_path=str(plan_path))
-        except Exception as e:
-            print(f"      ❌ API error: {e}")
-            continue
+            if stem == "canonical":          shuffle_type = "canonical"
+            elif stem == "optimal":          shuffle_type = "optimal"
+            elif stem == "frequency":        shuffle_type = "frequency"
+            elif stem == "dispersion":       shuffle_type = "dispersion"
+            elif stem == "random_dispersion_source": shuffle_type = "random_dispersion_source"
+            else:                            shuffle_type = "unknown"
+
+            print(f"   → {instance_name} | {shuffle_type}")
+
+            plan_path = domain_plans_dir / f"{instance_name}_{shuffle_type}.txt"
+
+            try:
+                call(domain=str(shuffled_path), problem=str(problem_path), plan_path=str(plan_path))
+            except Exception as e:
+                print(f"      ❌ API error: {e}")
+                continue
 
         optimal_plan_path = f"plans/optimal/{domain_name}_{instance_name}.txt"
 

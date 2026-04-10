@@ -11,16 +11,17 @@ def natural_sort_key(name: str):
     return [convert(c) for c in re.split('([0-9]+)', name)]
 
 def is_instance_fully_generated(domain_name: str, instance_name: str) -> bool:
-    """Проверяем, есть ли все 5 доменов для этой инстансы"""
-    shuffle_dir = Path(f"domains/shuffle/{domain_name}")
+    instance_dir = Path(f"domains/shuffle/{domain_name}") / instance_name
+    if not instance_dir.exists():
+        return False
     patterns = [
-        f"domain_canonical_{instance_name}.pddl",
-        f"domain_optimal_{instance_name}.pddl",
-        f"domain_frequency_{instance_name}.pddl",
-        f"domain_dispersion_{instance_name}.pddl",
-        f"domain_random_dispersion_source_{instance_name}.pddl"
+        "domain_canonical.pddl",
+        "domain_optimal.pddl",
+        "domain_frequency.pddl",
+        "domain_dispersion.pddl",
+        "domain_random_dispersion_source.pddl"
     ]
-    return all((shuffle_dir / p).exists() for p in patterns)
+    return all((instance_dir / p).exists() for p in patterns)
 
 for domain_name in DOMAIN_TYPES:
     print(f"\n🚀 Generating shuffled domains for {domain_name.upper()}...")
