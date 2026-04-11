@@ -5,10 +5,58 @@ import re
 from shuffler import *
 from checker import *
 from vars import *
+from openai import OpenAI
 
 load_dotenv()
 
-def call(domain=DOMAIN, problem=PROBLEM, plan_path=PLAN):
+from openai import OpenAI
+def call_openrouter(domain, problem, plan):
+    client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.getenv('OPENROUTER_API_KEY'),
+    )
+
+    def read_pddl(path):
+        with open(path, 'r', encoding='utf-8') as f:
+            return f.read()
+        
+    domain_text = read_pddl(domain)
+    problem_text = read_pddl(problem)
+
+    prompt = f"""
+You are an expert PDDL planner. Generate ONLY a valid optimal plan.
+No explanations, no comments, no markdown, no extra text.
+
+Domain:
+{domain_text}
+
+Problem:
+{problem_text}
+
+Return ONLY the plan — one action per line:
+(pick-up b)
+(stack b a)
+...
+"""
+    # First API call with reasoning
+    response = client.chat.completions.create(
+    model="google/gemma-4-26b-a4b-it:free",
+    messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+            ],
+    extra_body={"reasoning": {"enabled": True}}
+    )
+
+    # Extract the assistant message with reasoning_details
+    response = response.choices[0].message
+
+    return response
+
+
+def call_qroq(domain, problem, plan_path):
     client = Groq(api_key=os.getenv('GROQ_API_KEY'))
 
     def read_pddl(path):

@@ -1,43 +1,34 @@
-from dotenv import load_dotenv
-from checker import run_downward_optimal
-from groq import Groq
-import os
-import subprocess
 import re
-import pddlpy
 import random
 from pathlib import Path
-from vars import DOMAIN, PROBLEM
+import json
 
 random.seed(52)
 
-# ====================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ======================
-def actions_list(domain, problem):
-    """Только имена действий (pddlpy-proof)"""
-    dp = pddlpy.DomainProblem(domain, problem)
-    ops = list(dp.operators())
-    return [op.name if hasattr(op, 'name') else str(op) for op in ops]
-
+def get_action_name(action_block: str) -> str | None:
+    match = re.search(r'\(\s*:action\s+([^\s)]+)', action_block, re.IGNORECASE)
+    return match.group(1) if match else None
 
 def extract_actions_blocks(domain_text: str):
-    """Возвращает (header, action_dict, footer). action_dict = {name: full_block}"""
-    action_dict = {}
+    """
+    Возвращает: (header, action_map: dict[name → block], footer, canonical_order_list)
+    Полностью сохраняет оригинальное форматирование + whitespace.
+    Работает даже с 'define(domainrecharging-robots)' без пробелов.
+    """
+    action_map = {}
+    canonical_order_list = []
     i = 0
     n = len(domain_text)
 
     while i < n:
-        if domain_text[i] == ';':
+        if domain_text[i] == ';':  # пропуск комментариев
             while i < n and domain_text[i] != '\n':
                 i += 1
             if i < n:
                 i += 1
             continue
 
-        slice_20 = domain_text[i:i+20].lower()
-        is_action = slice_20.startswith('(:action')
-        is_durative = slice_20.startswith('(:durative-action')
-
-        if is_action or is_durative:
+        if i + 8 <= n and domain_text[i:i+8].lower() == '(:action':
             start = i
             while start > 0 and domain_text[start - 1] in ' \t\n':
                 start -= 1
@@ -45,48 +36,34 @@ def extract_actions_blocks(domain_text: str):
             depth = 0
             j = i
             while j < n:
-                if domain_text[j] == '(':
-                    depth += 1
-                elif domain_text[j] == ')':
+                if domain_text[j] == '(': depth += 1
+                elif domain_text[j] == ')': 
                     depth -= 1
                     if depth == 0:
-                        action_block = domain_text[start:j + 1]
-
-                        # извлекаем имя
-                        name_match = re.search(r'\(\s*:action\s+([\w-]+)', action_block, re.IGNORECASE)
-                        if not name_match:
-                            name_match = re.search(r'\(\s*:durative-action\s+([\w-]+)', action_block, re.IGNORECASE)
-                        name = name_match.group(1) if name_match else f"unknown_{len(action_dict)}"
-
-                        action_dict[name] = action_block
+                        block = domain_text[start:j + 1]
+                        name = get_action_name(block)
+                        if name:
+                            action_map[name] = block
+                            canonical_order_list.append(name)
                         i = j + 1
                         break
                 j += 1
             continue
         i += 1
 
-    if not action_dict:
-        return domain_text, {}, ''
+    if not action_map:
+        return domain_text, {}, '', []
 
-    first_block = next(iter(action_dict.values()))
+    # header и footer
+    first_block = next(iter(action_map.values()))
     first_pos = domain_text.find(first_block)
     header = domain_text[:first_pos].rstrip()
 
-    last_block = list(action_dict.values())[-1]
+    last_block = list(action_map.values())[-1]
     last_pos = domain_text.rfind(last_block) + len(last_block)
     footer = domain_text[last_pos:].lstrip('\n')
 
-    return header, action_dict, footer
-
-
-def random_order(domain, problem, random_domains: int):
-    actions = actions_list(domain, problem)
-    new_orders = []
-    for _ in range(random_domains):
-        shuffled = actions[:]
-        random.shuffle(shuffled)
-        new_orders.append(shuffled)
-    return new_orders
+    return header, action_map, footer, canonical_order_list
 
 
 def get_plan_order(plan_text: str, canonical_order_list: list) -> list:
@@ -105,15 +82,10 @@ def get_plan_order(plan_text: str, canonical_order_list: list) -> list:
 
 def get_frequency_order(plan_text: str, canonical_order_list: list) -> list:
     action_names = re.findall(r'\(([\w-]+)', plan_text)
-    dct = {}
-    seen = set()
+    dct = {act: 0 for act in canonical_order_list}
     for name in action_names:
-        if name in canonical_order_list:
-            dct[name] = dct.get(name, 0) + 1
-            seen.add(name)
-    for act in canonical_order_list:
-        if act not in seen:
-            dct[act] = 0
+        if name in dct:
+            dct[name] += 1
     return sorted(dct, key=dct.get, reverse=True)
 
 
@@ -141,33 +113,67 @@ def get_dispersion_order_with_source(random_orders_list: list, freq_order: list)
 
 
 # ====================== ОСНОВНАЯ ФУНКЦИЯ ======================
-def shuffle(domain, problem, opt_plan, save_dir):
+def shuffle(domain_path: str | Path, problem_path: str | Path, 
+            optimal_plan_path: str | Path, save_dir: str | Path):
+    domain_path = Path(domain_path)
+    problem_path = Path(problem_path)
+    optimal_plan_path = Path(optimal_plan_path)
+    save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
 
-    with open(domain, 'r', encoding='utf-8') as f:
+    with open(domain_path, 'r', encoding='utf-8') as f:
         domain_text = f.read()
 
-    header, action_dict, footer = extract_actions_blocks(domain_text)
-    canonical_order_list = actions_list(domain, problem)
+    header, action_map, footer, canonical_order_list = extract_actions_blocks(domain_text)
 
-    random_order_list = random_order(domain, problem, 10)
+    # 10 случайных порядков
+    random_order_list = []
+    for _ in range(10):
+        shuffled = canonical_order_list[:]
+        random.shuffle(shuffled)
+        random_order_list.append(shuffled)
 
-    with open(opt_plan, 'r', encoding='utf-8') as f:
+    with open(optimal_plan_path, 'r', encoding='utf-8') as f:
         optimal_plan_text = f.read()
 
     optimal_order_list = get_plan_order(optimal_plan_text, canonical_order_list)
     frequency_order_list = get_frequency_order(optimal_plan_text, canonical_order_list)
-    dispersion_order_list, chosen_random_idx = get_dispersion_order_with_source(random_order_list, frequency_order_list)
+    dispersion_order_list, chosen_idx = get_dispersion_order_with_source(
+        random_order_list, frequency_order_list
+    )
 
-    def save_domain(shuffle_type: str, order_list):
-        path = save_dir / f"domain_{shuffle_type}.pddl"
+    def save_domain(filename: str, order_list: list):
+        path = save_dir / filename
         with open(path, 'w', encoding='utf-8') as f:
-            f.write(header)
+            f.write(header + '\n')
             for act in order_list:
-                f.write(action_dict[act])
+                f.write(action_map[act])
             f.write(footer)
 
-    save_domain('canonical', canonical_order_list)
-    save_domain('optimal', optimal_order_list)
-    save_domain('frequency', frequency_order_list)
-    save_domain('dispersion', dispersion_order_list)
-    save_domain('random_dispersion_source', random_order_list[chosen_random_idx])
+    # 1. Специальные порядки
+    save_domain('domain_canonical.pddl', canonical_order_list)
+    save_domain('domain_optimal.pddl', optimal_order_list)
+    save_domain('domain_frequency.pddl', frequency_order_list)
+    save_domain('domain_dispersion.pddl', dispersion_order_list)
+
+    # 2. Все 10 рандомных порядков (01..10)
+    for idx, order in enumerate(random_order_list, start=1):
+        save_domain(f'domain_random_{idx:02d}.pddl', order)
+
+    # Логирование (очень полезно для эксперимента)
+    print(f"✅ {save_dir.name} → 4 special + 10 random (total 14 файлов)")
+    print(f"   Dispersion выбран из random_{chosen_idx+1:02d} "
+          f"(Kendall-tau dist = {kendall_tau_dist(dispersion_order_list, frequency_order_list)})")
+
+    # Опционально: сохраняем метаданные
+    meta = {
+        "canonical": canonical_order_list,
+        "optimal": optimal_order_list,
+        "frequency": frequency_order_list,
+        "dispersion": dispersion_order_list,
+        "dispersion_from_random_idx": chosen_idx + 1,
+        "all_random_orders": random_order_list
+    }
+    
+    with open(save_dir / "shuffle_meta.json", "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)

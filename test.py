@@ -43,5 +43,6 @@ def process_domains(DOMAIN_TYPES):
             shuffle(domain_file, problem_file, optimal_plan_file, shuffle_path)
 
 
-# Запуск обработки всех доменов
-process_domains(DOMAIN_TYPES)
+# # Запуск обработки всех доменов
+# process_domains(DOMAIN_TYPES)
+

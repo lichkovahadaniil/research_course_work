@@ -1,29 +1,37 @@
 from pathlib import Path
-import re
 
-instances_dir = Path("domains/original/blocksworld/instances")
+DOMAIN_TYPES = ['folding', 'labyrinth', 'recharging-robots', 'ricochet-robots', 'rubiks-cube']
 
-print(f"Исправляем файлы в: {instances_dir}\n")
+def cleanup_random_dispersion_source(dry_run: bool = True):
+    """
+    Удаляет все старые domain_random_dispersion_source.pddl
+    dry_run=True — только покажет, что будет удалено (рекомендую сначала так)
+    """
+    deleted = 0
+    for domain in DOMAIN_TYPES:
+        base_path = Path(f'materials/{domain}')
+        for i in range(1, 21):
+            folder = base_path / f'p{i:02d}'
+            target = folder / 'domain_random_dispersion_source.pddl'
+            
+            if target.exists():
+                if dry_run:
+                    print(f"[DRY-RUN] Будет удалён → {target}")
+                else:
+                    target.unlink()
+                    print(f"🗑 Удалён → {target}")
+                deleted += 1
+    
+    print(f"\n{'='*60}")
+    print(f"✅ Завершено! Найдено и {'удалено' if not dry_run else 'готово к удалению'}: {deleted} файлов")
+    if dry_run:
+        print("   Запусти с dry_run=False чтобы реально удалить файлы.")
 
-for pddl_file in sorted(instances_dir.glob("instance-*.pddl")):
-    original_text = pddl_file.read_text(encoding="utf-8")
-    text = original_text
+# ====================== ЗАПУСК ======================
 
-    # Основные замены
-    text = re.sub(r'\(:INIT', '(:init', text, flags=re.IGNORECASE)
-    text = re.sub(r'\(:GOAL', '(:goal', text, flags=re.IGNORECASE)
-    text = re.sub(r'\bAND\b', 'and', text, flags=re.IGNORECASE)
-
-    # Убираем возможный мусор в конце файла
-    text = text.replace('%', '').strip()
-
-    # Дополнительно: делаем :goal более читаемым (опционально, но полезно)
-    text = re.sub(r'\(:goal\s*\(and', '(:goal (and', text)
-
-    if text != original_text:
-        pddl_file.write_text(text, encoding="utf-8")
-        print(f"✓ Исправлен: {pddl_file.name}")
-    else:
-        print(f"○ Уже норм: {pddl_file.name}")
-
-print("\n✅ Все файлы обработаны!")
+if __name__ == "__main__":
+    # Сначала безопасный режим (покажет, что будет удалено)
+    cleanup_random_dispersion_source(dry_run=False)
+    
+    # После того как убедишься, что всё правильно — раскомментируй строку ниже:
+    # cleanup_random_dispersion_source(dry_run=False)
