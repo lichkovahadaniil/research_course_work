@@ -142,30 +142,30 @@ def shuffle(domain_path: str | Path, problem_path: str | Path,
         random_order_list, frequency_order_list
     )
 
-    def save_domain(filename: str, order_list: list):
-        path = save_dir / filename
+    def save_domain(subdir_name: str, order_list: list):
+        """Создаёт поддиректорию и кладёт туда domain.pddl"""
+        subdir = save_dir / subdir_name
+        subdir.mkdir(parents=True, exist_ok=True)
+        path = subdir / 'domain.pddl'
         with open(path, 'w', encoding='utf-8') as f:
             f.write(header + '\n')
             for act in order_list:
                 f.write(action_map[act])
             f.write(footer)
 
-    # 1. Специальные порядки
-    save_domain('domain_canonical.pddl', canonical_order_list)
-    save_domain('domain_optimal.pddl', optimal_order_list)
-    save_domain('domain_frequency.pddl', frequency_order_list)
-    save_domain('domain_dispersion.pddl', dispersion_order_list)
+    # Специальные порядки
+    save_domain('canonical', canonical_order_list)
+    save_domain('optimal', optimal_order_list)
+    save_domain('frequency', frequency_order_list)
+    save_domain('dispersion', dispersion_order_list)
 
-    # 2. Все 10 рандомных порядков (01..10)
+    # Все 10 рандомов
     for idx, order in enumerate(random_order_list, start=1):
-        save_domain(f'domain_random_{idx:02d}.pddl', order)
+        save_domain(f'random_{idx:02d}', order)
 
-    # Логирование (очень полезно для эксперимента)
-    print(f"✅ {save_dir.name} → 4 special + 10 random (total 14 файлов)")
-    print(f"   Dispersion выбран из random_{chosen_idx+1:02d} "
-          f"(Kendall-tau dist = {kendall_tau_dist(dispersion_order_list, frequency_order_list)})")
+    print(f"✅ {save_dir.name} → 4 special + 10 random (14 поддиректорий)")
 
-    # Опционально: сохраняем метаданные
+    # Метаданные
     meta = {
         "canonical": canonical_order_list,
         "optimal": optimal_order_list,
@@ -174,6 +174,56 @@ def shuffle(domain_path: str | Path, problem_path: str | Path,
         "dispersion_from_random_idx": chosen_idx + 1,
         "all_random_orders": random_order_list
     }
-    
     with open(save_dir / "shuffle_meta.json", "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
+
+# ====================== CLEANUP СТАРЫХ ФАЙЛОВ ======================
+def cleanup_old_shuffles(dry_run: bool = False):
+    """
+    Удаляет ВСЁ в папках p01..p20 кроме:
+      - pXX.pddl
+      - pXX.plan
+      - shuffle_meta.json
+      - (новые поддиректории canonical/optimal/.../random_XX)
+    """
+    DOMAIN_TYPES = ['folding', 'labyrinth', 'recharging-robots', 'ricochet-robots', 'rubiks-cube']
+    protected_files = {f'p{i:02d}.pddl' for i in range(1, 21)} | \
+                      {f'p{i:02d}.plan' for i in range(1, 21)} | \
+                      {'shuffle_meta.json'}
+
+    deleted_count = 0
+
+    for domain in DOMAIN_TYPES:
+        base = Path(f'materials/{domain}')
+        for i in range(1, 21):
+            folder = base / f'p{i:02d}'
+            if not folder.exists():
+                continue
+
+            for item in list(folder.iterdir()):
+                if item.is_file():
+                    if item.name not in protected_files:
+                        if dry_run:
+                            print(f"[DRY-RUN] Будет удалён файл → {item}")
+                        else:
+                            item.unlink()
+                            print(f"🗑 Удалён файл → {item}")
+                        deleted_count += 1
+                elif item.is_dir():
+                    # оставляем только нужные директории
+                    if not (item.name in {'canonical', 'optimal', 'frequency', 'dispersion'} or 
+                            item.name.startswith('random_')):
+                        if dry_run:
+                            print(f"[DRY-RUN] Будет удалена директория → {item}")
+                        else:
+                            import shutil
+                            shutil.rmtree(item)
+                            print(f"🗑 Удалена директория → {item}")
+                        deleted_count += 1
+
+    print(f"\n{'='*70}")
+    print(f"✅ Cleanup завершён! Удалено объектов: {deleted_count} (dry_run = {dry_run})")
+    if dry_run:
+        print("   → Чтобы реально удалить, запусти: cleanup_old_shuffles(dry_run=False)")
+
+cleanup_old_shuffles()
