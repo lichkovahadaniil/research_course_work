@@ -40,7 +40,7 @@ Return ONLY the plan — one action per line:
 """
     # First API call with reasoning
     response = client.chat.completions.create(
-    model="google/gemma-4-26b-a4b-it:free",
+    model="google/gemma-4-31b-it",
     messages=[
             {
                 "role": "user",
