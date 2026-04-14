@@ -6,53 +6,34 @@ from shuffler import shuffle
 DOMAIN_TYPES = ['folding', 'labyrinth', 'recharging-robots', 'ricochet-robots', 'rubiks-cube']
 
 def generate_paths(domains, force: bool = False):
-    """
-    Создаёт базовую структуру materials/
-    
-    force=False (по умолчанию) — безопасный режим:
-        • если папки p01..p20 уже существуют — ничего не перезаписываем
-        • если domain.pddl уже лежит в materials/{d}/ — тоже не трогаем
-    
-    force=True — полностью пересоздаём (перезаписываем всё)
-    """
     for d in domains:
         src_path = Path(f'ipc2023-dataset-main/opt/{d}')
         dest_path = Path(f'materials/{d}')
 
         dest_path.mkdir(parents=True, exist_ok=True)
 
-        # Копируем domain.pddl в корень домена
+        # domain.pddl можно перезаписывать
         domain_dest = dest_path / 'domain.pddl'
         if force or not domain_dest.exists():
             shutil.copy(src_path / 'domain.pddl', domain_dest)
-            print(f"   → domain.pddl {'перезаписан' if domain_dest.exists() else 'скопирован'} для {d}")
-        else:
-            print(f"   → domain.pddl для {d} уже существует (force=False)")
 
-        # Создаём/обновляем p01..p20
         for i in range(1, 21):
             name = f'p{i:02d}'
             subfolder = dest_path / name
             subfolder.mkdir(exist_ok=True)
 
             problem_dest = subfolder / f'{name}.pddl'
-            plan_dest    = subfolder / f'{name}.plan'
+            plan_dest = subfolder / f'{name}.plan'
 
-            copied = False
-
+            # .pddl можно обновлять, .plan — ТОЛЬКО если его нет
             if force or not problem_dest.exists():
                 shutil.copy(src_path / f'{name}.pddl', problem_dest)
-                copied = True
 
-            if force or not plan_dest.exists():
+            if not plan_dest.exists():          # ← ЗАЩИТА
                 shutil.copy(src_path / f'{name}.plan', plan_dest)
-                copied = True
-
-            if copied:
-                print(f"   → {name} файлы {'перезаписаны' if force else 'скопированы'}")
+                print(f"   → {name}.plan скопирован (впервые)")
             else:
-                print(f"   → {name} уже существует (force=False) — пропущено")
-
+                print(f"   → {name}.plan уже существует — защищён от перезаписи")
 
 def process_domains(domains, force: bool = False):
     """

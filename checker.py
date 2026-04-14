@@ -1,6 +1,7 @@
 import subprocess
 import re
 from pathlib import Path
+from typing import List, Tuple, Dict
 
 def validate_plan(domain_path, problem_path, plan_path):
     result = subprocess.run(
@@ -8,93 +9,115 @@ def validate_plan(domain_path, problem_path, plan_path):
         capture_output=True, text=True
     )
     output = result.stdout + result.stderr
-    return ('Plan valid' in output), output
+    is_valid = 'Plan valid' in output
+    return is_valid, output
 
-def get_plan_cost(plan_path):
-    with open(plan_path) as f:
+
+def extract_plan_cost_from_validate(output: str) -> float | None:
+    match = re.search(r'Plan cost:\s*(\d+\.?\d*)', output)
+    return float(match.group(1)) if match else None
+
+
+def get_actions_sequence(plan_path: str | Path) -> List[str]:
+    """Извлекает только имена действий в порядке выполнения"""
+    with open(plan_path, encoding='utf-8') as f:
         lines = f.readlines()
-    actions = [l for l in lines if l.strip() and not l.startswith(';')]
-    return len(actions)
-
-def run_downward_optimal(domain_path, problem_path, optimal_plan_path=None):
-    """
-    Если файл optimal_plan_path уже существует — просто читаем cost из него.
-    Если нет — запускаем Fast-Downward и сохраняем.
-    """
-    if optimal_plan_path is None:
-        optimal_plan_path = Path(f"plans/optimal/{Path(domain_path).stem}_{Path(problem_path).stem}.txt")
-    else:
-        optimal_plan_path = Path(optimal_plan_path)
     
-    optimal_plan_path.parent.mkdir(parents=True, exist_ok=True)
+    actions = []
+    for line in lines:
+        line = line.strip()
+        if line.startswith('(') and line.endswith(')'):
+            # берём первое слово внутри скобок
+            match = re.match(r'\(([\w-]+)', line)
+            if match:
+                actions.append(match.group(1))
+    return actions
 
-    # Если оптимальный план уже есть — просто парсим cost
-    if optimal_plan_path.exists():
+
+def action_order_distance(llm_plan_path: str | Path, optimal_plan_path: str | Path) -> Dict:
+    """
+    Комбинированная метрика:
+    - Kendall-Tau на общих действиях
+    - +1 за каждое лишнее действие (insertion)
+    - +1 за каждое пропущенное действие (deletion)
+    """
+    llm_seq = get_actions_sequence(llm_plan_path)
+    opt_seq = get_actions_sequence(optimal_plan_path)
+
+    # Общие действия (сохраняем порядок в оптимальном)
+    common = [a for a in opt_seq if a in llm_seq]
+
+    # Kendall-Tau только на общих действиях
+    def kendall_tau(order1: List[str], order2: List[str]) -> int:
+        pos = {act: idx for idx, act in enumerate(order2)}
+        inversions = 0
+        for i in range(len(order1)):
+            for j in range(i + 1, len(order1)):
+                if pos.get(order1[i], -1) > pos.get(order1[j], -1):
+                    inversions += 1
+        return inversions
+
+    if len(common) >= 2:
+        tau = kendall_tau([a for a in llm_seq if a in common], common)
+    else:
+        tau = 0
+
+    # Штрафы за insertions и deletions
+    insertions = len(llm_seq) - len(common)   # лишние действия
+    deletions = len(opt_seq) - len(common)    # пропущенные действия
+
+    total_distance = tau + insertions + deletions
+
+    # Нормализация (примерно от 0 до 1)
+    max_possible = len(opt_seq) * (len(opt_seq) - 1) // 2 + len(opt_seq)  # худший случай
+    normalized = total_distance / max_possible if max_possible > 0 else 0
+
+    return {
+        'kendall_tau_inversions': tau,
+        'insertions': insertions,
+        'deletions': deletions,
+        'total_distance': total_distance,
+        'normalized_distance': round(normalized, 4),
+        'llm_actions_count': len(llm_seq),
+        'optimal_actions_count': len(opt_seq)
+    }
+
+
+def build_metrics(domain_path, problem_path, plan_path, optimal_plan_path=None):
+    # 1. Валидация + стоимость LLM-плана
+    is_valid, val_output = validate_plan(domain_path, problem_path, plan_path)
+    llm_cost = extract_plan_cost_from_validate(val_output)
+
+    # 2. Оптимальная стоимость (из ground-truth)
+    optimal_cost = None
+    if optimal_plan_path and optimal_plan_path.exists():
         with open(optimal_plan_path, encoding='utf-8') as f:
             content = f.read()
-        match = re.search(r'Plan cost:\s*(\d+)', content)
+        match = re.search(r'Plan cost:\s*(\d+\.?\d*)', content)
         if match:
-            cost = int(match.group(1))
-            return cost, "Using pre-computed optimal plan", str(optimal_plan_path)
+            optimal_cost = float(match.group(1))
 
-    # Иначе запускаем Fast-Downward
-    res = subprocess.run(
-        [
-            '/Users/daniillickovaha/downward/fast-downward.py',
-            '--plan-file', str(optimal_plan_path),
-            domain_path,
-            problem_path,
-            '--search',
-            'astar(lmcut())',
-        ],
-        capture_output=True,
-        text=True
-    )
+    gap = None
+    if llm_cost is not None and optimal_cost is not None and optimal_cost != 0:
+        gap = (llm_cost - optimal_cost) / optimal_cost
 
-    # # not optimal
-    # res = subprocess.run(
-    # [
-    #     '/Users/daniillickovaha/downward/fast-downward.py',
-    #     '--plan-file', str(optimal_plan_path),
-    #     domain_path,
-    #     problem_path,
-    #     '--alias', 'llama-first'  # Вместо ручного --search
-    # ],
-    # capture_output=True,
-    # text=True
-    # )
+    # 3. Новая метрика порядка действий
+    order_metric = None
+    if optimal_plan_path and optimal_plan_path.exists():
+        order_metric = action_order_distance(plan_path, optimal_plan_path)
 
-    output = res.stdout + res.stderr
-    match = re.search(r'Plan cost:\s*(\d+)', output)
-    if match:
-        cost = int(match.group(1))
-        return cost, output, str(optimal_plan_path)
-    else:
-        return None, output, str(optimal_plan_path)
-
-def compute_gap(llm_cost, optimal_cost):
-    if optimal_cost == 0:
-        return 0
-    return (llm_cost - optimal_cost) / optimal_cost
-
-def plan_downward_metric(domain_path, problem_path, plan_path, optimal_plan_path=None):
-    llm_plan_cost = get_plan_cost(plan_path)
-    optimal_plan_cost, log, used_path = run_downward_optimal(domain_path, problem_path, optimal_plan_path)
-
-    if optimal_plan_cost is None:
-        return {'error': 'Downward didnt find optimal plan', 'log': log}
-
-    gap = compute_gap(llm_plan_cost, optimal_plan_cost)
     return {
-        'llm_cost': llm_plan_cost,
-        'optimal_cost': optimal_plan_cost,
-        'gap': gap,
-        'optimal_plan_path': used_path
+        'VAL': (is_valid, val_output),
+        'LLM_COST': {
+            'cost': llm_cost,
+            'num_actions': get_actions_sequence(plan_path)  # просто длина
+        },
+        'OPTIMAL_COST': optimal_cost,
+        'GAP': gap,
+        'ORDER_METRIC': order_metric
     }
 
-# Основная функция
-def build_metrics(dmain_path, problem_path, plan_path, optimal_plan_path=None):
-    return {
-        'VAL': validate_plan(dmain_path, problem_path, plan_path),
-        'FD': plan_downward_metric(dmain_path, problem_path, plan_path, optimal_plan_path)
-    }
+
+# Вспомогательная (оставил для совместимости)
+def get_plan_cost(plan_path):
+    return len(get_actions_sequence(plan_path))
