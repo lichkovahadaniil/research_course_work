@@ -1,15 +1,67 @@
 from openai import OpenAI
 import os
-import re
+import time
+import json
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
 
-def call_openrouter(domain, problem, reasoning_enabled: bool = False):
-    """Вызывает модель с/без reasoning. Возвращает чистый dict."""
+# Кэш поддержки reasoning
+CAPABILITIES_CACHE = {}
+CACHE_FILE = Path("model_capabilities.json")
+
+
+def load_cache():
+    global CAPABILITIES_CACHE
+    if CACHE_FILE.exists():
+        try:
+            with open(CACHE_FILE, encoding='utf-8') as f:
+                CAPABILITIES_CACHE = json.load(f)
+        except:
+            pass
+
+
+def save_cache():
+    with open(CACHE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(CAPABILITIES_CACHE, f, ensure_ascii=False, indent=2)
+
+
+def supports_reasoning(model: str) -> bool:
+    if model in CAPABILITIES_CACHE:
+        return CAPABILITIES_CACHE[model]
+
+    print(f"   🔍 Проверяем reasoning для {model}... ", end="", flush=True)
+    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.getenv('OPENROUTER_API_KEY'))
+
+    try:
+        client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": "Say OK"}],
+            extra_body={"reasoning": {"enabled": True}},
+            max_tokens=5,
+        )
+        CAPABILITIES_CACHE[model] = True
+        print("✅ поддерживает")
+    except:
+        CAPABILITIES_CACHE[model] = False
+        print("❌ не поддерживает")
+    save_cache()
+    return CAPABILITIES_CACHE[model]
+
+
+def call_openrouter(domain, problem, model: str = "openai/gpt-5-mini", reasoning_enabled: bool = False):
+    load_cache()
+
+    # Если модель не поддерживает reasoning — выключаем
+    if reasoning_enabled and not supports_reasoning(model):
+        reasoning_enabled = False
+        print(f"   ⚠️ reasoning отключён (модель не поддерживает)")
+
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=os.getenv('OPENROUTER_API_KEY'),
+        timeout=300.0,
     )
 
     def read_pddl(path):
@@ -33,44 +85,48 @@ Return ONLY the plan — one action per line:
 ...
 """
 
-    response = client.chat.completions.create(
-        model="openai/gpt-5-mini",
-        messages=[{"role": "user", "content": prompt}],
-        # extra_body={"reasoning": {"enabled": reasoning_enabled}}, # if 5 mini
-        extra_body={},
-        temperature=0.0,
-    )
+    start = time.time()
+    mode = "reasoning" if reasoning_enabled else "plain"
+    print(f"   → {model} | {mode} ... ", end="", flush=True)
 
-    msg = response.choices[0].message
-    raw_content = msg.content.strip() if msg.content else ""
-    final_plan = msg.content
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            extra_body={"reasoning": {"enabled": reasoning_enabled}} if reasoning_enabled else {},
+            temperature=0.0,
+            max_tokens=20000,
+        )
 
-    # # Очистка плана
-    # lines = raw_content.splitlines()
-    # cleaned = [line.strip() for line in lines 
-    #            if line.strip().startswith('(') and line.strip().endswith(')')]
+        duration = time.time() - start
+        print(f"готово ({duration:.1f}s)")
 
-    # if not cleaned:
-    #     cleaned = re.findall(r'\([^(]+?\)', raw_content)
+        msg = response.choices[0].message
+        raw_content = msg.content.strip() if msg.content else ""
 
-    # final_plan = "\n".join(cleaned) or "; LLM returned empty plan"
+        # Твой оригинальный простой стиль
+        final_plan = raw_content
 
-    # Reasoning (только если был включён)
-    reasoning_text = ""
-    if reasoning_enabled:
-        reasoning_text = msg.reasoning or ""
-        if not reasoning_text and hasattr(msg, 'reasoning_details'):
-            reasoning_text = "\n".join(
-                d.get('text', '') for d in msg.reasoning_details if isinstance(d, dict)
-            )
+        # Reasoning
+        reasoning_text = ""
+        if reasoning_enabled:
+            reasoning_text = getattr(msg, 'reasoning', '') or ""
+            if not reasoning_text and hasattr(msg, 'reasoning_details'):
+                reasoning_text = "\n".join(
+                    d.get('text', '') for d in msg.reasoning_details if isinstance(d, dict)
+                )
 
-    return {
-        "plan": final_plan,
-        "reasoning": reasoning_text,
-        "reasoning_enabled": reasoning_enabled,
-        "model": response.model,
-        "prompt_tokens": getattr(response.usage, 'prompt_tokens', None),
-        "completion_tokens": getattr(response.usage, 'completion_tokens', None),
-        "total_tokens": getattr(response.usage, 'total_tokens', None),
-        "raw_preview": raw_content[:500] + "..." if len(raw_content) > 500 else raw_content,
-    }
+        return {
+            "plan": final_plan,
+            "reasoning": reasoning_text,
+            "reasoning_enabled": reasoning_enabled,
+            "model": model,
+            "duration_sec": round(duration, 2),
+            "prompt_tokens": getattr(response.usage, 'prompt_tokens', None),
+            "completion_tokens": getattr(response.usage, 'completion_tokens', None),
+            "total_tokens": getattr(response.usage, 'total_tokens', None),
+        }
+
+    except Exception as e:
+        print(f"❌ ОШИБКА ({time.time()-start:.1f}s): {e}")
+        raise
