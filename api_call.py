@@ -26,26 +26,43 @@ def save_cache():
     with open(CACHE_FILE, 'w', encoding='utf-8') as f:
         json.dump(CAPABILITIES_CACHE, f, ensure_ascii=False, indent=2)
 
+
 KNOWN_REASONING_SUPPORT = {
     "openai/gpt-5-mini": True,
     "x-ai/grok-4.1-fast": True,
     "deepseek/deepseek-v3.2": True,
     "google/gemma-4-31b-it": True,
     "xiaomi/mimo-v2-flash": True,
+    "qwen/qwen3.5-35b-a3b:alibaba": True,   # ← НОВАЯ + alibaba
 }
+
+
+def fix_plan_format(plan_text: str) -> str:
+    """Исправляет планы без скобок — самая частая проблема open-source моделей"""
+    if not plan_text:
+        return plan_text
+    lines = plan_text.strip().split('\n')
+    fixed = []
+    for line in lines:
+        line = line.strip()
+        if line and not (line.startswith('(') and line.endswith(')')):
+            # Добавляем скобки, если их нет
+            fixed.append(f"({line})")
+        else:
+            fixed.append(line)
+    return '\n'.join(fixed)
 
 def supports_reasoning(model: str) -> bool:
     if model in CAPABILITIES_CACHE:
         return CAPABILITIES_CACHE[model]
 
-    # Hardcoded на основе официальной страницы OpenRouter
     if model in KNOWN_REASONING_SUPPORT:
         CAPABILITIES_CACHE[model] = KNOWN_REASONING_SUPPORT[model]
         save_cache()
         print(f"   🔍 {model} — hardcoded support: {KNOWN_REASONING_SUPPORT[model]} ✅")
         return KNOWN_REASONING_SUPPORT[model]
 
-    # Оригинальная эмпирическая проверка (для новых моделей)
+    # эмпирическая проверка (для будущих моделей)
     print(f"   🔍 Проверяем reasoning для {model}... ", end="", flush=True)
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.getenv('OPENROUTER_API_KEY'))
     try:
@@ -75,7 +92,7 @@ def call_openrouter(domain, problem, model: str = "openai/gpt-5-mini", reasoning
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=os.getenv('OPENROUTER_API_KEY'),
-        timeout=300.0,
+        timeout=1000.0,
     )
 
     def read_pddl(path):
@@ -120,6 +137,8 @@ Return ONLY the plan — one action per line:
         raw_content = msg.content.strip() if msg.content else ""
 
         # Твой оригинальный простой стиль
+        final_plan = fix_plan_format(raw_content)
+
         final_plan = raw_content
 
         # Reasoning

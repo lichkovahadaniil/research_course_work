@@ -15,6 +15,7 @@ TEST_MODELS = [
     "deepseek/deepseek-v3.2",
     "google/gemma-4-31b-it",
     "xiaomi/mimo-v2-flash",
+    "qwen/qwen3.5-35b-a3b:alibaba",
 ]
 
 print_lock = threading.Lock()
@@ -42,14 +43,13 @@ def append_spending(res: dict, model: str, domain_file: Path, problem_file: Path
     }
 
     with spendings_lock:
+        data = []
         if spendings_path.exists():
             try:
                 with open(spendings_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
             except:
-                data = []
-        else:
-            data = []
+                pass
         data.append(entry)
         with open(spendings_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -66,26 +66,23 @@ def process_single_model(
     model_dir = variant_dir / short_name
     model_dir.mkdir(parents=True, exist_ok=True)
 
-    safe_print(f"[{short_name}] 📌 Запуск (reasoning only)")
+    safe_print(f"[{short_name}] 📌 Запуск → {variant_dir.name}")
 
     try:
         res = call_openrouter(
             domain_file, problem_file, model=model_full, reasoning_enabled=True
         )
 
-        filename = 'llm.plan'
-        plan_path = model_dir / filename
-
+        plan_path = model_dir / 'llm.plan'
         with open(plan_path, 'w', encoding='utf-8') as f:
             f.write(res['plan'])
 
         append_spending(res, model_full, domain_file, problem_file)
-        safe_print(f"[{short_name}] AAAAA {res['plan'][:40]!r}...")
 
         metrics = build_metrics(domain_file, problem_file, plan_path, optimal_plan)
 
         llm_cost = metrics.get("LLM_COST", {}).get("cost")
-        safe_print(f"[{short_name}] ✅ {filename} | VAL: {metrics['VAL'][0]} | COST: {llm_cost}")
+        safe_print(f"[{short_name}] ✅ {variant_dir.name}/llm.plan | VAL: {metrics['VAL'][0]} | COST: {llm_cost}")
 
         key = f"{short_name}_reasoning"
         entry = {
@@ -96,8 +93,45 @@ def process_single_model(
         return key, entry
 
     except Exception as e:
-        safe_print(f"[{short_name}] ❌ Ошибка: {e}")
+        safe_print(f"[{short_name}] ❌ Ошибка в {variant_dir.name}: {e}")
         return None, None
+
+
+def build_global_metrics(domain: str):
+    """Собирает materials/metric.json со всей структурой"""
+    metric_path = Path("materials") / "metric.json"
+    metric = {}
+    if metric_path.exists():
+        try:
+            with open(metric_path, encoding='utf-8') as f:
+                metric = json.load(f)
+        except:
+            pass
+
+    if domain not in metric:
+        metric[domain] = {}
+
+    domain_path = Path(f"materials/{domain}")
+    for prob_dir in sorted(domain_path.glob("p*")):
+        if not prob_dir.is_dir():
+            continue
+        prob_name = prob_dir.name
+        metric[domain][prob_name] = {}
+
+        for variant_dir in sorted(prob_dir.iterdir()):
+            if not variant_dir.is_dir() or not (variant_dir / "domain.pddl").exists():
+                continue
+            variant_name = variant_dir.name
+
+            summary_path = variant_dir / "llm_summary.json"
+            if summary_path.exists():
+                with open(summary_path, encoding='utf-8') as f:
+                    variant_summary = json.load(f)
+                metric[domain][prob_name][variant_name] = variant_summary
+
+    with open(metric_path, 'w', encoding='utf-8') as f:
+        json.dump(metric, f, ensure_ascii=False, indent=2)
+    safe_print(f"📊 Обновлён глобальный metric.json ({len(metric[domain])} проблем)")
 
 
 def main():
@@ -110,46 +144,86 @@ def main():
 
     args = parser.parse_args()
 
-    safe_print("🚀 LLM Planning Pipeline — Multi-Model + Reasoning + Parallel + Clean Summary (v2)")
+    safe_print("🚀 LLM Planning Pipeline — FULL MODE + 6 моделей + 30 parallel + global metric.json")
     safe_print("=" * 130)
 
     generate_paths(DOMAIN_TYPES, force=False)
     process_domains(DOMAIN_TYPES, force=False)
 
-    if args.full or not args.test:
-        safe_print("🔥 Полноценный режим будет реализован позже.")
-        return
-
-    # ===================== ТЕСТ =====================
-    safe_print(f"\n🧪 ТЕСТ: {args.domain}/{args.problem}/{args.variant}\n")
-
-    curr_path = Path(f'materials/{args.domain}') / args.problem
-    domain_file = curr_path / args.variant / 'domain.pddl'
-    problem_file = curr_path / f'{args.problem}.pddl'
-    optimal_plan = curr_path / f'{args.problem}.plan'
-    variant_dir = curr_path / args.variant
-
-    # === 1. Предпроверка reasoning (теперь правильно импортирована) ===
-    safe_print("🔍 Предпроверка capabilities reasoning для всех моделей...")
+    # === 0. Предпроверка reasoning (один раз) ===
+    safe_print("🔍 Предпроверка capabilities...")
     for model_full in TEST_MODELS:
-        supports_reasoning(model_full)          # ← теперь работает корректно
-    safe_print("✅ Все модели проверены. Кэш model_capabilities.json обновлён.\n")
+        supports_reasoning(model_full)
+    safe_print("✅ Кэш готов.\n")
 
-    safe_print(f"🚀 Запускаем параллельно {len(TEST_MODELS)} моделей (reasoning only)...\n")
+    if args.full:
+        # ===================== FULL MODE =====================
+        safe_print(f"🔥 FULL RUN для домена: {args.domain} (20 проблем × 14 вариантов × 6 моделей)\n")
+        domain_path = Path(f"materials/{args.domain}")
 
-    results = []
-    with ThreadPoolExecutor(max_workers=len(TEST_MODELS)) as executor:
-        futures = [
-            executor.submit(
-                process_single_model,
-                model_full, domain_file, problem_file, optimal_plan, variant_dir
-            )
-            for model_full in TEST_MODELS
-        ]
-        for future in as_completed(futures):
-            key, entry = future.result()
-            if key and entry:
-                results.append((key, entry))
+        for i in range(1, 21):
+            prob_name = f"p{i:02d}"
+            prob_dir = domain_path / prob_name
+            if not prob_dir.exists():
+                continue
+
+            problem_file = prob_dir / f"{prob_name}.pddl"
+            optimal_plan = prob_dir / f"{prob_name}.plan"
+
+            # Все варианты домена для этой проблемы
+            variants = [d for d in prob_dir.iterdir() if d.is_dir() and (d / "domain.pddl").exists()]
+
+            safe_print(f"📦 {prob_name} → {len(variants)} вариантов × 6 моделей = {len(variants)*len(TEST_MODELS)} вызовов")
+
+            tasks = []
+            for variant_dir in variants:
+                for model_full in TEST_MODELS:
+                    tasks.append((model_full, variant_dir / "domain.pddl", problem_file, optimal_plan, variant_dir))
+
+            # Максимальный параллелизм
+            with ThreadPoolExecutor(max_workers=30) as executor:
+                futures = [executor.submit(process_single_model, *task) for task in tasks]
+                for _ in as_completed(futures):
+                    pass  # просто ждём завершения
+
+            safe_print(f"✅ {prob_name} завершён\n")
+
+        build_global_metrics(args.domain)
+        safe_print("🎉 FULL RUN ЗАВЕРШЁН. metric.json готов.")
+        
+    # ===================== ТЕСТ =====================
+    else:
+        safe_print(f"\n🧪 ТЕСТ: {args.domain}/{args.problem}/{args.variant}\n")
+
+        curr_path = Path(f'materials/{args.domain}') / args.problem
+        domain_file = curr_path / args.variant / 'domain.pddl'
+        problem_file = curr_path / f'{args.problem}.pddl'
+        optimal_plan = curr_path / f'{args.problem}.plan'
+        variant_dir = curr_path / args.variant
+
+        # === 1. Предпроверка reasoning (теперь правильно импортирована) ===
+        safe_print("🔍 Предпроверка capabilities reasoning для всех моделей...")
+        for model_full in TEST_MODELS:
+            supports_reasoning(model_full)          # ← теперь работает корректно
+        safe_print("✅ Все модели проверены. Кэш model_capabilities.json обновлён.\n")
+
+        safe_print(f"🚀 Запускаем параллельно {len(TEST_MODELS)} моделей (reasoning only)...\n")
+
+        results = []
+        with ThreadPoolExecutor(max_workers=len(TEST_MODELS)) as executor:
+            futures = [
+                executor.submit(
+                    process_single_model,
+                    model_full, domain_file, problem_file, optimal_plan, variant_dir
+                )
+                for model_full in TEST_MODELS
+            ]
+            for future in as_completed(futures):
+                key, entry = future.result()
+                if key and entry:
+                    results.append((key, entry))
+
+        build_global_metrics(args.domain)
 
     # === 2. Свежий metrics.json (без старого мусора) ===
     meta = {
