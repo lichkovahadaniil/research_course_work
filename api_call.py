@@ -26,14 +26,28 @@ def save_cache():
     with open(CACHE_FILE, 'w', encoding='utf-8') as f:
         json.dump(CAPABILITIES_CACHE, f, ensure_ascii=False, indent=2)
 
+KNOWN_REASONING_SUPPORT = {
+    "openai/gpt-5-mini": True,
+    "x-ai/grok-4.1-fast": True,
+    "deepseek/deepseek-v3.2": True,
+    "google/gemma-4-31b-it": True,
+    "xiaomi/mimo-v2-flash": True,
+}
 
 def supports_reasoning(model: str) -> bool:
     if model in CAPABILITIES_CACHE:
         return CAPABILITIES_CACHE[model]
 
+    # Hardcoded на основе официальной страницы OpenRouter
+    if model in KNOWN_REASONING_SUPPORT:
+        CAPABILITIES_CACHE[model] = KNOWN_REASONING_SUPPORT[model]
+        save_cache()
+        print(f"   🔍 {model} — hardcoded support: {KNOWN_REASONING_SUPPORT[model]} ✅")
+        return KNOWN_REASONING_SUPPORT[model]
+
+    # Оригинальная эмпирическая проверка (для новых моделей)
     print(f"   🔍 Проверяем reasoning для {model}... ", end="", flush=True)
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.getenv('OPENROUTER_API_KEY'))
-
     try:
         client.chat.completions.create(
             model=model,
@@ -81,7 +95,8 @@ Problem:
 {problem_text}
 
 Return ONLY the plan — one action per line:
-(rotate n1 clockwise up right)
+(action 1)
+(action 2)
 ...
 """
 

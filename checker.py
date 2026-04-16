@@ -14,8 +14,18 @@ def validate_plan(domain_path, problem_path, plan_path):
 
 
 def extract_plan_cost_from_validate(output: str) -> float | None:
+    """Извлекает реальную стоимость из вывода validate"""
+    # 1. Классический вариант
     match = re.search(r'Plan cost:\s*(\d+\.?\d*)', output)
-    return float(match.group(1)) if match else None
+    if match:
+        return float(match.group(1))
+    
+    # 2. Folding / новые домены (самое важное!)
+    match = re.search(r'Final value:\s*(\d+\.?\d*)', output)
+    if match:
+        return float(match.group(1))
+    
+    return None
 
 
 def get_actions_sequence(plan_path: str | Path) -> List[str]:
@@ -84,24 +94,39 @@ def action_order_distance(llm_plan_path: str | Path, optimal_plan_path: str | Pa
 
 
 def build_metrics(domain_path, problem_path, plan_path, optimal_plan_path=None):
-    # 1. Валидация + стоимость LLM-плана
+    # 1. Валидация + РЕАЛЬНАЯ стоимость LLM-плана
     is_valid, val_output = validate_plan(domain_path, problem_path, plan_path)
     llm_cost = extract_plan_cost_from_validate(val_output)
 
-    # 2. Оптимальная стоимость (из ground-truth)
+    # Fallback: если validate ничего не дал — используем длину (на всякий случай)
+    llm_actions_len = len(get_actions_sequence(plan_path))
+    if llm_cost is None:
+        llm_cost = llm_actions_len
+
+    # 2. РЕАЛЬНАЯ оптимальная стоимость
     optimal_cost = None
+    optimal_actions_len = None
     if optimal_plan_path and optimal_plan_path.exists():
         with open(optimal_plan_path, encoding='utf-8') as f:
             content = f.read()
+        
+        # Пробуем разные варианты комментариев
         match = re.search(r'Plan cost:\s*(\d+\.?\d*)', content)
+        if not match:
+            match = re.search(r'Optimal cost:\s*(\d+\.?\d*)', content, re.IGNORECASE)
+        
         if match:
             optimal_cost = float(match.group(1))
+        else:
+            optimal_cost = len(get_actions_sequence(optimal_plan_path))
+        
+        optimal_actions_len = len(get_actions_sequence(optimal_plan_path))
 
     gap = None
     if llm_cost is not None and optimal_cost is not None and optimal_cost != 0:
         gap = (llm_cost - optimal_cost) / optimal_cost
 
-    # 3. Новая метрика порядка действий
+    # 3. Метрика порядка
     order_metric = None
     if optimal_plan_path and optimal_plan_path.exists():
         order_metric = action_order_distance(plan_path, optimal_plan_path)
@@ -109,14 +134,14 @@ def build_metrics(domain_path, problem_path, plan_path, optimal_plan_path=None):
     return {
         'VAL': (is_valid, val_output),
         'LLM_COST': {
-            'cost': llm_cost,
-            'num_actions': get_actions_sequence(plan_path)  # просто длина
+            'cost': llm_cost,           # ← НАСТОЯЩАЯ СТОИМОСТЬ
+            'num_actions': llm_actions_len   # ← ДЛИНА ПЛАНА
         },
         'OPTIMAL_COST': optimal_cost,
+        'OPTIMAL_ACTIONS_LEN': optimal_actions_len,
         'GAP': gap,
         'ORDER_METRIC': order_metric
     }
-
 
 # Вспомогательная (оставил для совместимости)
 def get_plan_cost(plan_path):
