@@ -4,6 +4,7 @@ import time
 import json
 from pathlib import Path
 from dotenv import load_dotenv
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 load_dotenv()
 
@@ -81,6 +82,12 @@ def supports_reasoning(model: str) -> bool:
     return CAPABILITIES_CACHE[model]
 
 
+@retry(
+    stop=stop_after_attempt(4),                    # 4 попытки
+    wait=wait_exponential(multiplier=3, min=5, max=30),  # 5s → 10s → 20s → 30s
+    retry=retry_if_exception_type((json.JSONDecodeError, Exception)),  # ловим JSONDecode + любые другие
+    reraise=True
+)
 def call_openrouter(domain, problem, model: str = "openai/gpt-5-mini", reasoning_enabled: bool = False):
     load_cache()
 
@@ -102,8 +109,28 @@ def call_openrouter(domain, problem, model: str = "openai/gpt-5-mini", reasoning
     domain_text = read_pddl(domain)
     problem_text = read_pddl(problem)
 
-    prompt = f"""You are an expert PDDL planner. Generate ONLY a valid optimal plan.
-No explanations, no comments, no markdown, no extra text.
+    prompt = f'''You are a deterministic PDDL planner.
+
+Goal: produce a valid plan that achieves the goal state with minimal number of actions.
+
+Rules:
+- Output ONLY the plan.
+- One action per line.
+- No extra text
+- No empty lines
+- Do NOT output anything before or after the plan.
+- Stop immediately after the last action.
+
+Constraints:
+- The plan MUST be valid under the domain and problem.
+- The plan SHOULD be optimal (minimum number of actions).
+- Use only actions defined in the domain.
+- Respect all preconditions and effects.
+
+Strategy (internal, do not output):
+- Reason step-by-step silently.
+- Minimize the number of actions.
+- Avoid redundant or reversing actions.
 
 Domain:
 {domain_text}
@@ -111,12 +138,10 @@ Domain:
 Problem:
 {problem_text}
 
-Return ONLY the plan — one action per line:
-(action 1)
-(action 2)
-...
-"""
-
+Return ONLY the plan.
+Each line must contain exactly one action in PDDL format:
+(action-name arg1 arg2 ...)
+'''
     start = time.time()
     mode = "reasoning" if reasoning_enabled else "plain"
     print(f"   → {model} | {mode} ... ", end="", flush=True)

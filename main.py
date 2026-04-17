@@ -11,7 +11,7 @@ from checker import build_metrics
 
 MODEL_PROVIDER_MAP = {
     "xiaomi/mimo-v2-flash": "xiaomi/mimo-v2-flash:fp8",
-    "deepseek/deepseek-v3.2": "deepseek/deepseek-v3.2:atlas-cloud/fp8", 
+    "deepseek/deepseek-v3.2": "deepseek/deepseek-v3.2:novita/fp8", 
     "qwen/qwen3.5-35b-a3b:alibaba": "qwen/qwen3.5-35b-a3b:alibaba",
 }
 
@@ -206,6 +206,8 @@ def main():
     parser.add_argument('--variant', type=str, default='canonical')
     parser.add_argument('--full', action='store_true')
     parser.add_argument('--workers', type=int, default=30)
+    parser.add_argument('--all-variants', action='store_true',
+                        help='В тестовом режиме обработать ВСЕ 14 вариантов для указанной проблемы')
 
     args = parser.parse_args()
 
@@ -259,37 +261,53 @@ def main():
         safe_print("🎉 FULL RUN ЗАВЕРШЁН. metric.json готов.")
     # ===================== ТЕСТ =====================
     else:
-        safe_print(f"\n🧪 ТЕСТ: {args.domain}/{args.problem}/{args.variant}\n")
+        safe_print(f"\n🧪 ТЕСТ: {args.domain}/{args.problem} {'(все 14 вариантов)' if args.all_variants else args.variant}\n")
 
         curr_path = Path(f'materials/{args.domain}') / args.problem
-        domain_file = curr_path / args.variant / 'domain.pddl'
         problem_file = curr_path / f'{args.problem}.pddl'
         optimal_plan = curr_path / f'{args.problem}.plan'
-        variant_dir = curr_path / args.variant
 
-        # === 1. Предпроверка reasoning (теперь правильно импортирована) ===
-        safe_print("🔍 Предпроверка capabilities reasoning для всех моделей...")
-        for model_full in TEST_MODELS:
-            supports_reasoning(model_full)          # ← теперь работает корректно
-        safe_print("✅ Все модели проверены. Кэш model_capabilities.json обновлён.\n")
+        if args.all_variants:
+            variants = [d for d in curr_path.iterdir() 
+                        if d.is_dir() and (d / "domain.pddl").exists()]
+            safe_print(f"📦 Найдено {len(variants)} вариантов → полный параллелизм {len(variants)*len(TEST_MODELS)} задач\n")
+        else:
+            variant_dir = curr_path / args.variant
+            variants = [variant_dir]
+            safe_print(f"📦 Один вариант: {args.variant}\n")
 
-        safe_print(f"🚀 Запускаем параллельно {len(TEST_MODELS)} моделей (reasoning only)...\n")
+        # === ПОЛНЫЙ ПАРАЛЛЕЛИЗМ КАК В FULL-РЕЖИМЕ ===
+        tasks = []
+        for variant_dir in variants:
+            for model_full in TEST_MODELS:
+                tasks.append((
+                    model_full,
+                    variant_dir / "domain.pddl",
+                    problem_file,
+                    optimal_plan,
+                    variant_dir
+                ))
 
-        results = []
-        with ThreadPoolExecutor(max_workers=len(TEST_MODELS)) as executor:
-            futures = [
-                executor.submit(
-                    process_single_model,
-                    model_full, domain_file, problem_file, optimal_plan, variant_dir
-                )
-                for model_full in TEST_MODELS
-            ]
+        safe_print(f"🚀 Запускаем {len(tasks)} запросов параллельно (workers={args.workers})...\n")
+
+        results = []  # собираем только для последней таблицы (если нужно)
+        with ThreadPoolExecutor(max_workers=args.workers) as executor:
+            futures = [executor.submit(process_single_model, *task) for task in tasks]
             for future in as_completed(futures):
                 key, entry = future.result()
                 if key and entry:
                     results.append((key, entry))
 
+        # После всех запросов строим summary/metrics для КАЖДОГО варианта
+        safe_print(f"\n📊 Генерируем llm_summary.json + llm_metrics.json для всех вариантов...")
+        for variant_dir in variants:
+            build_variant_summary(variant_dir)
+            safe_print(f"   ✅ {variant_dir.name} → файлы готовы")
+
         build_global_metrics(args.domain)
+
+        # Для таблицы в конце используем последний вариант (или можно убрать таблицу в all-variants)
+        variant_dir = variants[-1]  # просто берём последний для таблицы
 
     # === 2. Свежий metrics.json (без старого мусора) ===
     meta = {
