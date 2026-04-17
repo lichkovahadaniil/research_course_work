@@ -31,7 +31,7 @@ KNOWN_REASONING_SUPPORT = {
     "openai/gpt-5-mini": True,
     "x-ai/grok-4.1-fast": True,
     "deepseek/deepseek-v3.2": True,
-    "google/gemma-4-31b-it": True,
+    # "google/gemma-4-31b-it": True,
     "xiaomi/mimo-v2-flash": True,
     "qwen/qwen3.5-35b-a3b:alibaba": True,   # ← НОВАЯ + alibaba
 }
@@ -92,7 +92,7 @@ def call_openrouter(domain, problem, model: str = "openai/gpt-5-mini", reasoning
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=os.getenv('OPENROUTER_API_KEY'),
-        timeout=1000.0,
+        timeout=1500.0,
     )
 
     def read_pddl(path):
@@ -137,7 +137,7 @@ Return ONLY the plan — one action per line:
         raw_content = msg.content.strip() if msg.content else ""
 
         # Твой оригинальный простой стиль
-        final_plan = fix_plan_format(raw_content)
+        # final_plan = fix_plan_format(raw_content)
 
         final_plan = raw_content
 

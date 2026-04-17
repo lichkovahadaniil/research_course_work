@@ -5,12 +5,12 @@ from typing import List, Tuple, Dict
 
 def validate_plan(domain_path, problem_path, plan_path):
     result = subprocess.run(
-        ['validate', domain_path, problem_path, plan_path], 
+        ['validate', '-c', domain_path, problem_path, plan_path], 
         capture_output=True, text=True
     )
-    output = result.stdout + result.stderr
-    is_valid = 'Plan valid' in output
-    return is_valid, output
+    # План валиден только если код возврата 0 и в выводе есть заветная фраза
+    is_valid = (result.returncode == 0) and ('Plan valid' in result.stdout)
+    return is_valid, result.stdout + result.stderr  
 
 
 def extract_plan_cost_from_validate(output: str) -> float | None:
@@ -98,12 +98,13 @@ def build_metrics(domain_path, problem_path, plan_path, optimal_plan_path=None):
     is_valid, val_output = validate_plan(domain_path, problem_path, plan_path)
     llm_cost = extract_plan_cost_from_validate(val_output)
 
-    # Fallback: если validate ничего не дал — используем длину (на всякий случай)
     llm_actions_len = len(get_actions_sequence(plan_path))
-    if llm_cost is None:
-        llm_cost = llm_actions_len
 
-    # 2. РЕАЛЬНАЯ оптимальная стоимость
+    # ← НОВОЕ: явный fallback ТОЛЬКО для invalid планов
+    if llm_cost is None:
+        llm_cost = llm_actions_len if not is_valid else None  # если valid, но cost не спарсился — оставляем None
+
+    # 2. РЕАЛЬНАЯ оптимальная стоимость (без изменений)
     optimal_cost = None
     optimal_actions_len = None
     if optimal_plan_path and optimal_plan_path.exists():
@@ -122,11 +123,23 @@ def build_metrics(domain_path, problem_path, plan_path, optimal_plan_path=None):
         
         optimal_actions_len = len(get_actions_sequence(optimal_plan_path))
 
+# 3. SUPER-OPTIMAL DETECTION ← НОВОЕ
+    bug_optimal = False
+    notes = None
+    if (is_valid and 
+        llm_cost is not None and 
+        optimal_cost is not None and 
+        optimal_cost > 0 and 
+        llm_cost < optimal_cost - 1e-6):  # небольшой epsilon на float
+        bug_optimal = True
+        notes = f"LLM нашёл план дешевле IPC-optimal ({llm_cost} < {optimal_cost}) — возможный loophole в домене"
+
+    # 4. GAP (теперь может быть отрицательным!)
     gap = None
     if llm_cost is not None and optimal_cost is not None and optimal_cost != 0:
         gap = (llm_cost - optimal_cost) / optimal_cost
 
-    # 3. Метрика порядка
+    # 5. Метрика порядка (без изменений)
     order_metric = None
     if optimal_plan_path and optimal_plan_path.exists():
         order_metric = action_order_distance(plan_path, optimal_plan_path)
@@ -134,13 +147,16 @@ def build_metrics(domain_path, problem_path, plan_path, optimal_plan_path=None):
     return {
         'VAL': (is_valid, val_output),
         'LLM_COST': {
-            'cost': llm_cost,           # ← НАСТОЯЩАЯ СТОИМОСТЬ
-            'num_actions': llm_actions_len   # ← ДЛИНА ПЛАНА
+            'cost': llm_cost,
+            'num_actions': llm_actions_len,
+            'is_bug_optimal': bug_optimal,
+            'notes': notes
         },
         'OPTIMAL_COST': optimal_cost,
         'OPTIMAL_ACTIONS_LEN': optimal_actions_len,
         'GAP': gap,
-        'ORDER_METRIC': order_metric
+        'ORDER_METRIC': order_metric,
+        'BUG_OPTIMAL': bug_optimal
     }
 
 # Вспомогательная (оставил для совместимости)
