@@ -143,7 +143,6 @@ def shuffle(domain_path: str | Path, problem_path: str | Path,
     )
 
     def save_domain(subdir_name: str, order_list: list):
-        """Создаёт поддиректорию и кладёт туда domain.pddl"""
         subdir = save_dir / subdir_name
         subdir.mkdir(parents=True, exist_ok=True)
         path = subdir / 'domain.pddl'
@@ -159,20 +158,22 @@ def shuffle(domain_path: str | Path, problem_path: str | Path,
     save_domain('frequency', frequency_order_list)
     save_domain('dispersion', dispersion_order_list)
 
-    # Все 10 рандомов
-    for idx, order in enumerate(random_order_list, start=1):
+    # из 10 random выбираем только 5
+    selected_random = random.sample(random_order_list, 5)   # ровно 5
+    for idx, order in enumerate(selected_random, start=1):
         save_domain(f'random_{idx:02d}', order)
 
-    print(f"✅ {save_dir.name} → 4 special + 10 random (14 поддиректорий)")
+    print(f"✅ {save_dir.name} → 4 special + 5 random (9 поддиректорий)")
 
-    # Метаданные
+    # Метаданные (обновляем)
     meta = {
         "canonical": canonical_order_list,
         "optimal": optimal_order_list,
         "frequency": frequency_order_list,
         "dispersion": dispersion_order_list,
         "dispersion_from_random_idx": chosen_idx + 1,
-        "all_random_orders": random_order_list
+        "all_random_orders": random_order_list,          # все 10 для отладки
+        "selected_random_orders": selected_random        # только 5
     }
     with open(save_dir / "shuffle_meta.json", "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)

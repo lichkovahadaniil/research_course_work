@@ -38,24 +38,19 @@
 ;; Move the robot ?r from the location ?from to the location ?to while
 ;; consuming the battery -- it is decreased by one from ?fpre to ?fpost
 
-(:action move
-    :parameters (?r - robot ?from - location ?to - location
-                 ?fpre - battery-level ?fpost - battery-level)
+(:action verify-guard-config
+    :parameters (?c - config)
     :precondition
         (and
-            (not (stopped ?r))
-            (at ?r ?from)
-            (battery ?r ?fpre)
-            (BATTERY-PREDECESSOR ?fpost ?fpre)
-            (or (CONNECTED ?from ?to) (CONNECTED ?to ?from))
+            (forall (?l - location)
+                (imply (GUARD-CONFIG ?c ?l) (guarded ?l))
+            )
         )
     :effect
         (and
-            (not (at ?r ?from))
-            (at ?r ?to)
-            (not (battery ?r ?fpre))
-            (battery ?r ?fpost)
-            (increase (total-cost) (move-cost))
+            (forall (?r - robot) (not (stopped ?r)))
+            (forall (?l - location) (not (guarded ?l)))
+            (config-fullfilled ?c)
         )
 )
 (:action stop-and-guard
@@ -76,19 +71,24 @@
             )
         )
 )
-(:action verify-guard-config
-    :parameters (?c - config)
+(:action move
+    :parameters (?r - robot ?from - location ?to - location
+                 ?fpre - battery-level ?fpost - battery-level)
     :precondition
         (and
-            (forall (?l - location)
-                (imply (GUARD-CONFIG ?c ?l) (guarded ?l))
-            )
+            (not (stopped ?r))
+            (at ?r ?from)
+            (battery ?r ?fpre)
+            (BATTERY-PREDECESSOR ?fpost ?fpre)
+            (or (CONNECTED ?from ?to) (CONNECTED ?to ?from))
         )
     :effect
         (and
-            (forall (?r - robot) (not (stopped ?r)))
-            (forall (?l - location) (not (guarded ?l)))
-            (config-fullfilled ?c)
+            (not (at ?r ?from))
+            (at ?r ?to)
+            (not (battery ?r ?fpre))
+            (battery ?r ?fpost)
+            (increase (total-cost) (move-cost))
         )
 )
 (:action recharge

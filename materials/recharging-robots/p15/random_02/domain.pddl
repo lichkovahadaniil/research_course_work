@@ -58,6 +58,21 @@
             (increase (total-cost) (move-cost))
         )
 )
+(:action verify-guard-config
+    :parameters (?c - config)
+    :precondition
+        (and
+            (forall (?l - location)
+                (imply (GUARD-CONFIG ?c ?l) (guarded ?l))
+            )
+        )
+    :effect
+        (and
+            (forall (?r - robot) (not (stopped ?r)))
+            (forall (?l - location) (not (guarded ?l)))
+            (config-fullfilled ?c)
+        )
+)
 (:action stop-and-guard
     :parameters (?r - robot ?l - location)
     :precondition
@@ -74,21 +89,6 @@
                       (guarded ?l2)
                 )
             )
-        )
-)
-(:action verify-guard-config
-    :parameters (?c - config)
-    :precondition
-        (and
-            (forall (?l - location)
-                (imply (GUARD-CONFIG ?c ?l) (guarded ?l))
-            )
-        )
-    :effect
-        (and
-            (forall (?r - robot) (not (stopped ?r)))
-            (forall (?l - location) (not (guarded ?l)))
-            (config-fullfilled ?c)
         )
 )
 (:action recharge

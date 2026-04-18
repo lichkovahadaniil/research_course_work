@@ -39,28 +39,6 @@
 
 ;; Starts movement of the robot ?r in the direction ?dir
 
-(:action go
-    :parameters (?r - robot ?dir - direction)
-    :precondition
-        (and
-            (nothing-is-moving)
-
-            ;; If we want to make sure that the robot can actually make a step
-            ;; in the specified direction, then we need to add the following
-            ;; (and the corresponding parameters ?cfrom and ?cto):
-            ;;
-            ;; (at ?r ?cfrom)
-            ;; (NEXT ?cfrom ?cto ?dir)
-            ;; (free ?cto)
-            ;; (not (BLOCKED ?cfrom ?dir))
-        )
-    :effect
-        (and
-            (not (nothing-is-moving))
-            (is-moving ?r ?dir)
-            (increase (total-cost) (go-cost))
-        )
-)
 
 (:action stop-at-robot
     :parameters (?r - robot ?cat - cell ?cnext - cell ?dir - direction)
@@ -91,6 +69,28 @@
             (not (is-moving ?r ?dir))
             (nothing-is-moving)
             (increase (total-cost) (stop-cost))
+        )
+)
+(:action go
+    :parameters (?r - robot ?dir - direction)
+    :precondition
+        (and
+            (nothing-is-moving)
+
+            ;; If we want to make sure that the robot can actually make a step
+            ;; in the specified direction, then we need to add the following
+            ;; (and the corresponding parameters ?cfrom and ?cto):
+            ;;
+            ;; (at ?r ?cfrom)
+            ;; (NEXT ?cfrom ?cto ?dir)
+            ;; (free ?cto)
+            ;; (not (BLOCKED ?cfrom ?dir))
+        )
+    :effect
+        (and
+            (not (nothing-is-moving))
+            (is-moving ?r ?dir)
+            (increase (total-cost) (go-cost))
         )
 )
 (:action step

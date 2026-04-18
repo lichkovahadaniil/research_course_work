@@ -56,6 +56,114 @@
 
 ;; moves the robot between to cards
 
+(:action start-move-card-west
+:parameters(?cm - card ?x - gridpos ?y - gridpos ?cnext - card ?nextx - gridpos)
+:precondition
+    (and
+        (not (cards-moving))
+        (not (cards-moving-west))
+        (not (robot-at ?cm))
+        (card-at ?cm ?x ?y )
+        (min-pos ?x)
+        (card-at ?cnext ?nextx ?y)
+        (next ?nextx ?x)
+    )
+:effect
+    (and
+        (cards-moving)
+        (cards-moving-west)
+        (not (card-at ?cm ?x ?y ))
+        (new-headtail-card ?cm)
+        (next-moving-card ?cnext)
+        (increase (total-cost) (move-card))
+    )
+)
+
+(:action start-move-card-north
+:parameters(?cm - card ?x - gridpos ?y - gridpos ?cnext - card ?nexty - gridpos)
+:precondition
+    (and
+        (not (cards-moving))
+        (not (cards-moving-north))
+        (not (robot-at ?cm))
+        (card-at ?cm ?x ?y )
+        (min-pos ?y)
+        (card-at ?cnext ?x ?nexty)
+        (next ?nexty ?y)
+    )
+:effect
+    (and
+        (cards-moving)
+        (cards-moving-north)
+        (not (card-at ?cm ?x ?y ))
+        (new-headtail-card ?cm)
+        (next-moving-card ?cnext)
+        (increase (total-cost) (move-card))
+    )
+)
+(:action leave
+:parameters(?c - card ?prow - gridpos ?pcolumn - gridpos)
+:precondition
+    (and
+        (not (cards-moving))
+        (robot-at ?c)
+        (card-at ?c ?prow ?pcolumn)
+        (max-pos ?prow)
+        (max-pos ?pcolumn)
+        (not (blocked ?c s ))
+    )
+:effect
+    (and
+        (left)
+    )
+)
+(:action move-card-west
+:parameters(?cm - card ?x - gridpos ?y - gridpos ?cnext - card ?nextx - gridpos ?prevx - gridpos)
+:precondition
+    (and
+        (cards-moving)
+        (cards-moving-west)
+        (not (robot-at ?cm))
+        (next-moving-card ?cm)
+        (card-at ?cm ?x ?y )
+        (card-at ?cnext ?nextx ?y)
+        (next ?x ?prevx)
+        (next ?nextx ?x)
+    )
+:effect
+    (and
+        (cards-moving)
+        (cards-moving-west)
+        (not (card-at ?cm ?x ?y))
+        (card-at ?cm ?prevx ?y)
+        (not (next-moving-card ?cm))
+        (next-moving-card ?cnext)
+    )
+)
+
+(:action move-card-east
+:parameters(?cm - card ?x - gridpos ?y - gridpos ?cnext - card ?nextx - gridpos ?prevx - gridpos)
+:precondition
+    (and
+        (cards-moving)
+        (cards-moving-east)
+        (not (robot-at ?cm))
+        (next-moving-card ?cm)
+        (card-at ?cm ?x ?y )
+        (card-at ?cnext ?nextx ?y)
+        (next ?prevx ?x)
+        (next ?x ?nextx)
+    )
+:effect
+    (and
+        (cards-moving)
+        (cards-moving-east)
+        (not (card-at ?cm ?x ?y))
+        (card-at ?cm ?prevx ?y)
+        (not (next-moving-card ?cm))
+        (next-moving-card ?cnext)
+    )
+)
 
 (:action stop-move-card-east
 :parameters(?cm - card ?x - gridpos ?y - gridpos ?prevx - gridpos ?newtc - card)
@@ -81,54 +189,9 @@
         (not (next-moving-card ?cm))
     )
 )
-(:action move-west
-    :parameters (?cfrom - card ?xfrom - gridpos ?yfrom - gridpos ?dfrom - directionH ?cto - card ?xto - gridpos ?yto - gridpos ?dto - directionH)
-    :precondition
-        (and
-            (not (cards-moving))
-            (= ?dfrom w)
-            (robot-at ?cfrom)
-            (card-at ?cfrom ?xfrom ?yfrom)
-            (card-at ?cto ?xto ?yto)
-            (next ?xfrom ?xto)
-            (= ?yfrom ?yto)
-            (not (= ?dfrom ?dto))
-            (not (blocked ?cfrom ?dfrom))
-            (not (blocked ?cto ?dto))
-        )
-    :effect
-        (and
-            (not (robot-at ?cfrom))
-            (robot-at ?cto)
-            (increase (total-cost) (move-robot-cost))
-        )
-)
 
-(:action move-east
-    :parameters (?cfrom - card ?xfrom - gridpos ?yfrom - gridpos ?dfrom - directionH ?cto - card ?xto - gridpos ?yto - gridpos ?dto - directionH)
-    :precondition
-        (and
-            (not (cards-moving))
-            (= ?dfrom e)
-            (robot-at ?cfrom)
-            (card-at ?cfrom ?xfrom ?yfrom)
-            (card-at ?cto ?xto ?yto)
-            (next ?xto ?xfrom)
-            (= ?yfrom ?yto)
-            (not (= ?dfrom ?dto))
-            (not (blocked ?cfrom ?dfrom))
-            (not (blocked ?cto ?dto))
-        )
-    :effect
-        (and
-            (not (robot-at ?cfrom))
-            (robot-at ?cto)
-            (increase (total-cost) (move-robot-cost))
-        )
-)
-
-(:action stop-move-card-south
-:parameters(?cm - card ?x - gridpos ?y - gridpos ?prevy - gridpos ?newtc - card)
+(:action move-card-south
+:parameters(?cm - card ?x - gridpos ?y - gridpos  ?cnext - card ?nexty - gridpos ?prevy - gridpos)
 :precondition
     (and
         (cards-moving)
@@ -136,35 +199,41 @@
         (not (robot-at ?cm))
         (next-moving-card ?cm)
         (card-at ?cm ?x ?y )
+        (card-at ?cnext ?x ?nexty)
         (next ?prevy ?y)
-        (min-pos ?y)
-        (new-headtail-card ?newtc)
+        (next ?y ?nexty)
     )
 :effect
     (and
-        (not (cards-moving))
-        (not (cards-moving-south))
+        (cards-moving)
+        (cards-moving-south)
         (not (card-at ?cm ?x ?y))
         (card-at ?cm ?x ?prevy)
-        (card-at ?newtc ?x ?y)
-        (not (new-headtail-card ?newtc))
         (not (next-moving-card ?cm))
+        (next-moving-card ?cnext)
     )
 )
-(:action leave
-:parameters(?c - card ?prow - gridpos ?pcolumn - gridpos)
+
+(:action start-move-card-south
+:parameters(?cm - card ?x - gridpos ?y - gridpos  ?cnext - card ?nexty - gridpos)
 :precondition
     (and
         (not (cards-moving))
-        (robot-at ?c)
-        (card-at ?c ?prow ?pcolumn)
-        (max-pos ?prow)
-        (max-pos ?pcolumn)
-        (not (blocked ?c s ))
+        (not (cards-moving-south))
+        (not (robot-at ?cm))
+        (card-at ?cm ?x ?y )
+        (max-pos ?y)
+        (card-at ?cnext ?x ?nexty)
+        (next ?y ?nexty)
     )
 :effect
     (and
-        (left)
+        (cards-moving)
+        (cards-moving-south)
+        (not (card-at ?cm ?x ?y ))
+        (new-headtail-card ?cm)
+        (next-moving-card ?cnext)
+        (increase (total-cost) (move-card))
     )
 )
 (:action stop-move-card-west
@@ -192,74 +261,74 @@
     )
 )
 
-(:action move-card-north
-:parameters(?cm - card ?x - gridpos ?y - gridpos  ?cnext - card ?nexty - gridpos ?prevy - gridpos)
-:precondition
-    (and
-        (cards-moving)
-        (cards-moving-north)
-        (not (robot-at ?cm))
-        (next-moving-card ?cm)
-        (card-at ?cm ?x ?y )
-        (card-at ?cnext ?x ?nexty)
-        (next ?y ?prevy)
-        (next ?nexty ?y)
-    )
-:effect
-    (and
-        (cards-moving)
-        (cards-moving-north)
-        (not (card-at ?cm ?x ?y))
-        (card-at ?cm ?x ?prevy)
-        (not (next-moving-card ?cm))
-        (next-moving-card ?cnext)
-    )
-)
-(:action move-card-west
-:parameters(?cm - card ?x - gridpos ?y - gridpos ?cnext - card ?nextx - gridpos ?prevx - gridpos)
-:precondition
-    (and
-        (cards-moving)
-        (cards-moving-west)
-        (not (robot-at ?cm))
-        (next-moving-card ?cm)
-        (card-at ?cm ?x ?y )
-        (card-at ?cnext ?nextx ?y)
-        (next ?x ?prevx)
-        (next ?nextx ?x)
-    )
-:effect
-    (and
-        (cards-moving)
-        (cards-moving-west)
-        (not (card-at ?cm ?x ?y))
-        (card-at ?cm ?prevx ?y)
-        (not (next-moving-card ?cm))
-        (next-moving-card ?cnext)
-    )
-)
-
-(:action start-move-card-south
-:parameters(?cm - card ?x - gridpos ?y - gridpos  ?cnext - card ?nexty - gridpos)
+(:action start-move-card-east
+:parameters(?cm - card ?x - gridpos ?y - gridpos ?cnext - card ?nextx - gridpos)
 :precondition
     (and
         (not (cards-moving))
-        (not (cards-moving-south))
+        (not (cards-moving-east))
         (not (robot-at ?cm))
         (card-at ?cm ?x ?y )
-        (max-pos ?y)
-        (card-at ?cnext ?x ?nexty)
-        (next ?y ?nexty)
+        (max-pos ?x)
+        (card-at ?cnext ?nextx ?y)
+        (next ?x ?nextx)
     )
 :effect
     (and
         (cards-moving)
-        (cards-moving-south)
+        (cards-moving-east)
         (not (card-at ?cm ?x ?y ))
         (new-headtail-card ?cm)
         (next-moving-card ?cnext)
         (increase (total-cost) (move-card))
     )
+)
+
+(:action stop-move-card-north
+:parameters(?cm - card ?x - gridpos ?y - gridpos ?prevy - gridpos ?newtc - card)
+:precondition
+    (and
+        (cards-moving)
+        (cards-moving-north)
+        (not (robot-at ?cm))
+        (next-moving-card ?cm)
+        (card-at ?cm ?x ?y )
+        (next ?y ?prevy)
+        (max-pos ?y)
+        (new-headtail-card ?newtc)
+    )
+:effect
+    (and
+        (not (cards-moving))
+        (not (cards-moving-north))
+        (not (card-at ?cm ?x ?y))
+        (card-at ?cm ?x ?prevy)
+        (card-at ?newtc ?x ?y)
+        (not (new-headtail-card ?newtc))
+        (not (next-moving-card ?cm))
+    )
+)
+(:action move-west
+    :parameters (?cfrom - card ?xfrom - gridpos ?yfrom - gridpos ?dfrom - directionH ?cto - card ?xto - gridpos ?yto - gridpos ?dto - directionH)
+    :precondition
+        (and
+            (not (cards-moving))
+            (= ?dfrom w)
+            (robot-at ?cfrom)
+            (card-at ?cfrom ?xfrom ?yfrom)
+            (card-at ?cto ?xto ?yto)
+            (next ?xfrom ?xto)
+            (= ?yfrom ?yto)
+            (not (= ?dfrom ?dto))
+            (not (blocked ?cfrom ?dfrom))
+            (not (blocked ?cto ?dto))
+        )
+    :effect
+        (and
+            (not (robot-at ?cfrom))
+            (robot-at ?cto)
+            (increase (total-cost) (move-robot-cost))
+        )
 )
 
 (:action move-south
@@ -308,55 +377,31 @@
         )
 )
 
-(:action start-move-card-east
-:parameters(?cm - card ?x - gridpos ?y - gridpos ?cnext - card ?nextx - gridpos)
-:precondition
-    (and
-        (not (cards-moving))
-        (not (cards-moving-east))
-        (not (robot-at ?cm))
-        (card-at ?cm ?x ?y )
-        (max-pos ?x)
-        (card-at ?cnext ?nextx ?y)
-        (next ?x ?nextx)
-    )
-:effect
-    (and
-        (cards-moving)
-        (cards-moving-east)
-        (not (card-at ?cm ?x ?y ))
-        (new-headtail-card ?cm)
-        (next-moving-card ?cnext)
-        (increase (total-cost) (move-card))
-    )
+(:action move-east
+    :parameters (?cfrom - card ?xfrom - gridpos ?yfrom - gridpos ?dfrom - directionH ?cto - card ?xto - gridpos ?yto - gridpos ?dto - directionH)
+    :precondition
+        (and
+            (not (cards-moving))
+            (= ?dfrom e)
+            (robot-at ?cfrom)
+            (card-at ?cfrom ?xfrom ?yfrom)
+            (card-at ?cto ?xto ?yto)
+            (next ?xto ?xfrom)
+            (= ?yfrom ?yto)
+            (not (= ?dfrom ?dto))
+            (not (blocked ?cfrom ?dfrom))
+            (not (blocked ?cto ?dto))
+        )
+    :effect
+        (and
+            (not (robot-at ?cfrom))
+            (robot-at ?cto)
+            (increase (total-cost) (move-robot-cost))
+        )
 )
 
-(:action move-card-south
+(:action move-card-north
 :parameters(?cm - card ?x - gridpos ?y - gridpos  ?cnext - card ?nexty - gridpos ?prevy - gridpos)
-:precondition
-    (and
-        (cards-moving)
-        (cards-moving-south)
-        (not (robot-at ?cm))
-        (next-moving-card ?cm)
-        (card-at ?cm ?x ?y )
-        (card-at ?cnext ?x ?nexty)
-        (next ?prevy ?y)
-        (next ?y ?nexty)
-    )
-:effect
-    (and
-        (cards-moving)
-        (cards-moving-south)
-        (not (card-at ?cm ?x ?y))
-        (card-at ?cm ?x ?prevy)
-        (not (next-moving-card ?cm))
-        (next-moving-card ?cnext)
-    )
-)
-
-(:action stop-move-card-north
-:parameters(?cm - card ?x - gridpos ?y - gridpos ?prevy - gridpos ?newtc - card)
 :precondition
     (and
         (cards-moving)
@@ -364,88 +409,43 @@
         (not (robot-at ?cm))
         (next-moving-card ?cm)
         (card-at ?cm ?x ?y )
-        (next ?y ?prevy)
-        (max-pos ?y)
-        (new-headtail-card ?newtc)
-    )
-:effect
-    (and
-        (not (cards-moving))
-        (not (cards-moving-north))
-        (not (card-at ?cm ?x ?y))
-        (card-at ?cm ?x ?prevy)
-        (card-at ?newtc ?x ?y)
-        (not (new-headtail-card ?newtc))
-        (not (next-moving-card ?cm))
-    )
-)
-
-(:action move-card-east
-:parameters(?cm - card ?x - gridpos ?y - gridpos ?cnext - card ?nextx - gridpos ?prevx - gridpos)
-:precondition
-    (and
-        (cards-moving)
-        (cards-moving-east)
-        (not (robot-at ?cm))
-        (next-moving-card ?cm)
-        (card-at ?cm ?x ?y )
-        (card-at ?cnext ?nextx ?y)
-        (next ?prevx ?x)
-        (next ?x ?nextx)
-    )
-:effect
-    (and
-        (cards-moving)
-        (cards-moving-east)
-        (not (card-at ?cm ?x ?y))
-        (card-at ?cm ?prevx ?y)
-        (not (next-moving-card ?cm))
-        (next-moving-card ?cnext)
-    )
-)
-(:action start-move-card-west
-:parameters(?cm - card ?x - gridpos ?y - gridpos ?cnext - card ?nextx - gridpos)
-:precondition
-    (and
-        (not (cards-moving))
-        (not (cards-moving-west))
-        (not (robot-at ?cm))
-        (card-at ?cm ?x ?y )
-        (min-pos ?x)
-        (card-at ?cnext ?nextx ?y)
-        (next ?nextx ?x)
-    )
-:effect
-    (and
-        (cards-moving)
-        (cards-moving-west)
-        (not (card-at ?cm ?x ?y ))
-        (new-headtail-card ?cm)
-        (next-moving-card ?cnext)
-        (increase (total-cost) (move-card))
-    )
-)
-
-(:action start-move-card-north
-:parameters(?cm - card ?x - gridpos ?y - gridpos ?cnext - card ?nexty - gridpos)
-:precondition
-    (and
-        (not (cards-moving))
-        (not (cards-moving-north))
-        (not (robot-at ?cm))
-        (card-at ?cm ?x ?y )
-        (min-pos ?y)
         (card-at ?cnext ?x ?nexty)
+        (next ?y ?prevy)
         (next ?nexty ?y)
     )
 :effect
     (and
         (cards-moving)
         (cards-moving-north)
-        (not (card-at ?cm ?x ?y ))
-        (new-headtail-card ?cm)
+        (not (card-at ?cm ?x ?y))
+        (card-at ?cm ?x ?prevy)
+        (not (next-moving-card ?cm))
         (next-moving-card ?cnext)
-        (increase (total-cost) (move-card))
+    )
+)
+
+(:action stop-move-card-south
+:parameters(?cm - card ?x - gridpos ?y - gridpos ?prevy - gridpos ?newtc - card)
+:precondition
+    (and
+        (cards-moving)
+        (cards-moving-south)
+        (not (robot-at ?cm))
+        (next-moving-card ?cm)
+        (card-at ?cm ?x ?y )
+        (next ?prevy ?y)
+        (min-pos ?y)
+        (new-headtail-card ?newtc)
+    )
+:effect
+    (and
+        (not (cards-moving))
+        (not (cards-moving-south))
+        (not (card-at ?cm ?x ?y))
+        (card-at ?cm ?x ?prevy)
+        (card-at ?newtc ?x ?y)
+        (not (new-headtail-card ?newtc))
+        (not (next-moving-card ?cm))
     )
 ))
 

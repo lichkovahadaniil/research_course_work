@@ -38,6 +38,49 @@
 ;; Move the robot ?r from the location ?from to the location ?to while
 ;; consuming the battery -- it is decreased by one from ?fpre to ?fpost
 
+(:action move
+    :parameters (?r - robot ?from - location ?to - location
+                 ?fpre - battery-level ?fpost - battery-level)
+    :precondition
+        (and
+            (not (stopped ?r))
+            (at ?r ?from)
+            (battery ?r ?fpre)
+            (BATTERY-PREDECESSOR ?fpost ?fpre)
+            (or (CONNECTED ?from ?to) (CONNECTED ?to ?from))
+        )
+    :effect
+        (and
+            (not (at ?r ?from))
+            (at ?r ?to)
+            (not (battery ?r ?fpre))
+            (battery ?r ?fpost)
+            (increase (total-cost) (move-cost))
+        )
+)
+(:action recharge
+    :parameters (?rfrom - robot ?rto - robot ?loc - location
+                 ?fpre-from - battery-level ?fpost-from - battery-level
+                 ?fpre-to - battery-level ?fpost-to - battery-level)
+    :precondition
+        (and
+            (not (= ?rfrom ?rto))
+            (at ?rfrom ?loc)
+            (at ?rto ?loc)
+            (battery ?rfrom ?fpre-from)
+            (battery ?rto ?fpre-to)
+            (BATTERY-PREDECESSOR ?fpost-from ?fpre-from)
+            (BATTERY-PREDECESSOR ?fpre-to ?fpost-to)
+        )
+    :effect
+        (and
+            (not (battery ?rfrom ?fpre-from))
+            (battery ?rfrom ?fpost-from)
+            (not (battery ?rto ?fpre-to))
+            (battery ?rto ?fpost-to)
+            (increase (total-cost) (recharge-cost))
+        )
+)
 (:action stop-and-guard
     :parameters (?r - robot ?l - location)
     :precondition
@@ -69,48 +112,5 @@
             (forall (?r - robot) (not (stopped ?r)))
             (forall (?l - location) (not (guarded ?l)))
             (config-fullfilled ?c)
-        )
-)
-(:action recharge
-    :parameters (?rfrom - robot ?rto - robot ?loc - location
-                 ?fpre-from - battery-level ?fpost-from - battery-level
-                 ?fpre-to - battery-level ?fpost-to - battery-level)
-    :precondition
-        (and
-            (not (= ?rfrom ?rto))
-            (at ?rfrom ?loc)
-            (at ?rto ?loc)
-            (battery ?rfrom ?fpre-from)
-            (battery ?rto ?fpre-to)
-            (BATTERY-PREDECESSOR ?fpost-from ?fpre-from)
-            (BATTERY-PREDECESSOR ?fpre-to ?fpost-to)
-        )
-    :effect
-        (and
-            (not (battery ?rfrom ?fpre-from))
-            (battery ?rfrom ?fpost-from)
-            (not (battery ?rto ?fpre-to))
-            (battery ?rto ?fpost-to)
-            (increase (total-cost) (recharge-cost))
-        )
-)
-(:action move
-    :parameters (?r - robot ?from - location ?to - location
-                 ?fpre - battery-level ?fpost - battery-level)
-    :precondition
-        (and
-            (not (stopped ?r))
-            (at ?r ?from)
-            (battery ?r ?fpre)
-            (BATTERY-PREDECESSOR ?fpost ?fpre)
-            (or (CONNECTED ?from ?to) (CONNECTED ?to ?from))
-        )
-    :effect
-        (and
-            (not (at ?r ?from))
-            (at ?r ?to)
-            (not (battery ?r ?fpre))
-            (battery ?r ?fpost)
-            (increase (total-cost) (move-cost))
         )
 ))

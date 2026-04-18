@@ -39,26 +39,19 @@
 
 ;; Starts movement of the robot ?r in the direction ?dir
 
-(:action go
-    :parameters (?r - robot ?dir - direction)
+(:action stop-at-barrier
+    :parameters (?r - robot ?cat - cell ?dir - direction)
     :precondition
         (and
-            (nothing-is-moving)
-
-            ;; If we want to make sure that the robot can actually make a step
-            ;; in the specified direction, then we need to add the following
-            ;; (and the corresponding parameters ?cfrom and ?cto):
-            ;;
-            ;; (at ?r ?cfrom)
-            ;; (NEXT ?cfrom ?cto ?dir)
-            ;; (free ?cto)
-            ;; (not (BLOCKED ?cfrom ?dir))
+            (is-moving ?r ?dir)
+            (at ?r ?cat)
+            (BLOCKED ?cat ?dir)
         )
     :effect
         (and
-            (not (nothing-is-moving))
-            (is-moving ?r ?dir)
-            (increase (total-cost) (go-cost))
+            (not (is-moving ?r ?dir))
+            (nothing-is-moving)
+            (increase (total-cost) (stop-cost))
         )
 )
 
@@ -97,18 +90,25 @@
             (increase (total-cost) (step-cost))
         )
 )
-(:action stop-at-barrier
-    :parameters (?r - robot ?cat - cell ?dir - direction)
+(:action go
+    :parameters (?r - robot ?dir - direction)
     :precondition
         (and
-            (is-moving ?r ?dir)
-            (at ?r ?cat)
-            (BLOCKED ?cat ?dir)
+            (nothing-is-moving)
+
+            ;; If we want to make sure that the robot can actually make a step
+            ;; in the specified direction, then we need to add the following
+            ;; (and the corresponding parameters ?cfrom and ?cto):
+            ;;
+            ;; (at ?r ?cfrom)
+            ;; (NEXT ?cfrom ?cto ?dir)
+            ;; (free ?cto)
+            ;; (not (BLOCKED ?cfrom ?dir))
         )
     :effect
         (and
-            (not (is-moving ?r ?dir))
-            (nothing-is-moving)
-            (increase (total-cost) (stop-cost))
+            (not (nothing-is-moving))
+            (is-moving ?r ?dir)
+            (increase (total-cost) (go-cost))
         )
 ))

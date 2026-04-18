@@ -39,6 +39,21 @@
 
 ;; Starts movement of the robot ?r in the direction ?dir
 
+(:action stop-at-barrier
+    :parameters (?r - robot ?cat - cell ?dir - direction)
+    :precondition
+        (and
+            (is-moving ?r ?dir)
+            (at ?r ?cat)
+            (BLOCKED ?cat ?dir)
+        )
+    :effect
+        (and
+            (not (is-moving ?r ?dir))
+            (nothing-is-moving)
+            (increase (total-cost) (stop-cost))
+        )
+)
 (:action step
     :parameters (?r - robot ?cfrom - cell ?cto - cell ?dir - direction)
     :precondition
@@ -56,21 +71,6 @@
             (not (free ?cto))
             (at ?r ?cto)
             (increase (total-cost) (step-cost))
-        )
-)
-(:action stop-at-barrier
-    :parameters (?r - robot ?cat - cell ?dir - direction)
-    :precondition
-        (and
-            (is-moving ?r ?dir)
-            (at ?r ?cat)
-            (BLOCKED ?cat ?dir)
-        )
-    :effect
-        (and
-            (not (is-moving ?r ?dir))
-            (nothing-is-moving)
-            (increase (total-cost) (stop-cost))
         )
 )
 (:action go

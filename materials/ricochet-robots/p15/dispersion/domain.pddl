@@ -56,6 +56,21 @@
             (increase (total-cost) (stop-cost))
         )
 )
+(:action stop-at-barrier
+    :parameters (?r - robot ?cat - cell ?dir - direction)
+    :precondition
+        (and
+            (is-moving ?r ?dir)
+            (at ?r ?cat)
+            (BLOCKED ?cat ?dir)
+        )
+    :effect
+        (and
+            (not (is-moving ?r ?dir))
+            (nothing-is-moving)
+            (increase (total-cost) (stop-cost))
+        )
+)
 (:action go
     :parameters (?r - robot ?dir - direction)
     :precondition
@@ -76,21 +91,6 @@
             (not (nothing-is-moving))
             (is-moving ?r ?dir)
             (increase (total-cost) (go-cost))
-        )
-)
-(:action stop-at-barrier
-    :parameters (?r - robot ?cat - cell ?dir - direction)
-    :precondition
-        (and
-            (is-moving ?r ?dir)
-            (at ?r ?cat)
-            (BLOCKED ?cat ?dir)
-        )
-    :effect
-        (and
-            (not (is-moving ?r ?dir))
-            (nothing-is-moving)
-            (increase (total-cost) (stop-cost))
         )
 )
 (:action step

@@ -38,19 +38,22 @@
 ;; Move the robot ?r from the location ?from to the location ?to while
 ;; consuming the battery -- it is decreased by one from ?fpre to ?fpost
 
-(:action verify-guard-config
-    :parameters (?c - config)
+(:action stop-and-guard
+    :parameters (?r - robot ?l - location)
     :precondition
         (and
-            (forall (?l - location)
-                (imply (GUARD-CONFIG ?c ?l) (guarded ?l))
-            )
+            (not (stopped ?r))
+            (at ?r ?l)
         )
     :effect
         (and
-            (forall (?r - robot) (not (stopped ?r)))
-            (forall (?l - location) (not (guarded ?l)))
-            (config-fullfilled ?c)
+            (stopped ?r)
+            (guarded ?l)
+            (forall (?l2 - location)
+                (when (or (CONNECTED ?l ?l2) (CONNECTED ?l2 ?l))
+                      (guarded ?l2)
+                )
+            )
         )
 )
 (:action recharge
@@ -76,6 +79,21 @@
             (increase (total-cost) (recharge-cost))
         )
 )
+(:action verify-guard-config
+    :parameters (?c - config)
+    :precondition
+        (and
+            (forall (?l - location)
+                (imply (GUARD-CONFIG ?c ?l) (guarded ?l))
+            )
+        )
+    :effect
+        (and
+            (forall (?r - robot) (not (stopped ?r)))
+            (forall (?l - location) (not (guarded ?l)))
+            (config-fullfilled ?c)
+        )
+)
 (:action move
     :parameters (?r - robot ?from - location ?to - location
                  ?fpre - battery-level ?fpost - battery-level)
@@ -94,23 +112,5 @@
             (not (battery ?r ?fpre))
             (battery ?r ?fpost)
             (increase (total-cost) (move-cost))
-        )
-)
-(:action stop-and-guard
-    :parameters (?r - robot ?l - location)
-    :precondition
-        (and
-            (not (stopped ?r))
-            (at ?r ?l)
-        )
-    :effect
-        (and
-            (stopped ?r)
-            (guarded ?l)
-            (forall (?l2 - location)
-                (when (or (CONNECTED ?l ?l2) (CONNECTED ?l2 ?l))
-                      (guarded ?l2)
-                )
-            )
         )
 ))

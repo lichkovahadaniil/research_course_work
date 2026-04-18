@@ -58,39 +58,6 @@
             (increase (total-cost) (move-cost))
         )
 )
-(:action stop-and-guard
-    :parameters (?r - robot ?l - location)
-    :precondition
-        (and
-            (not (stopped ?r))
-            (at ?r ?l)
-        )
-    :effect
-        (and
-            (stopped ?r)
-            (guarded ?l)
-            (forall (?l2 - location)
-                (when (or (CONNECTED ?l ?l2) (CONNECTED ?l2 ?l))
-                      (guarded ?l2)
-                )
-            )
-        )
-)
-(:action verify-guard-config
-    :parameters (?c - config)
-    :precondition
-        (and
-            (forall (?l - location)
-                (imply (GUARD-CONFIG ?c ?l) (guarded ?l))
-            )
-        )
-    :effect
-        (and
-            (forall (?r - robot) (not (stopped ?r)))
-            (forall (?l - location) (not (guarded ?l)))
-            (config-fullfilled ?c)
-        )
-)
 (:action recharge
     :parameters (?rfrom - robot ?rto - robot ?loc - location
                  ?fpre-from - battery-level ?fpost-from - battery-level
@@ -112,5 +79,38 @@
             (not (battery ?rto ?fpre-to))
             (battery ?rto ?fpost-to)
             (increase (total-cost) (recharge-cost))
+        )
+)
+(:action verify-guard-config
+    :parameters (?c - config)
+    :precondition
+        (and
+            (forall (?l - location)
+                (imply (GUARD-CONFIG ?c ?l) (guarded ?l))
+            )
+        )
+    :effect
+        (and
+            (forall (?r - robot) (not (stopped ?r)))
+            (forall (?l - location) (not (guarded ?l)))
+            (config-fullfilled ?c)
+        )
+)
+(:action stop-and-guard
+    :parameters (?r - robot ?l - location)
+    :precondition
+        (and
+            (not (stopped ?r))
+            (at ?r ?l)
+        )
+    :effect
+        (and
+            (stopped ?r)
+            (guarded ?l)
+            (forall (?l2 - location)
+                (when (or (CONNECTED ?l ?l2) (CONNECTED ?l2 ?l))
+                      (guarded ?l2)
+                )
+            )
         )
 ))

@@ -38,6 +38,21 @@
 ;; Move the robot ?r from the location ?from to the location ?to while
 ;; consuming the battery -- it is decreased by one from ?fpre to ?fpost
 
+(:action verify-guard-config
+    :parameters (?c - config)
+    :precondition
+        (and
+            (forall (?l - location)
+                (imply (GUARD-CONFIG ?c ?l) (guarded ?l))
+            )
+        )
+    :effect
+        (and
+            (forall (?r - robot) (not (stopped ?r)))
+            (forall (?l - location) (not (guarded ?l)))
+            (config-fullfilled ?c)
+        )
+)
 (:action stop-and-guard
     :parameters (?r - robot ?l - location)
     :precondition
@@ -77,21 +92,6 @@
             (not (battery ?rto ?fpre-to))
             (battery ?rto ?fpost-to)
             (increase (total-cost) (recharge-cost))
-        )
-)
-(:action verify-guard-config
-    :parameters (?c - config)
-    :precondition
-        (and
-            (forall (?l - location)
-                (imply (GUARD-CONFIG ?c ?l) (guarded ?l))
-            )
-        )
-    :effect
-        (and
-            (forall (?r - robot) (not (stopped ?r)))
-            (forall (?l - location) (not (guarded ?l)))
-            (config-fullfilled ?c)
         )
 )
 (:action move

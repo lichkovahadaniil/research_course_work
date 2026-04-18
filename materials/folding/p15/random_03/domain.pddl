@@ -92,21 +92,19 @@
             (increase (total-cost) (update-cost))
         )
 )
-(:action rotate
-    :parameters (?n - node ?r - rotation ?fromdir ?todir - direction)
+
+(:action rotate-second-pass-end
+    :parameters (?n - node)
     :precondition
         (and
-            (not (rotating))
-            (NEXT-DIRECTION ?fromdir ?r ?todir)
-            (heading ?n ?fromdir)
+            (END-NODE ?n)
+            (node-second-pass-next ?n)
         )
     :effect
         (and
-            (not (heading ?n ?fromdir))
-            (heading ?n ?todir)
-            (rotating)
-            (node-first-pass-next ?n ?r ?n)
-            (increase (total-cost) (rotate-cost))
+            (not (node-second-pass-next ?n))
+            (not (rotating))
+            (increase (total-cost) (update-cost))
         )
 )
 (:action rotate-second-pass
@@ -172,18 +170,20 @@
             (increase (total-cost) (update-cost))
         )
 )
-
-(:action rotate-second-pass-end
-    :parameters (?n - node)
+(:action rotate
+    :parameters (?n - node ?r - rotation ?fromdir ?todir - direction)
     :precondition
         (and
-            (END-NODE ?n)
-            (node-second-pass-next ?n)
+            (not (rotating))
+            (NEXT-DIRECTION ?fromdir ?r ?todir)
+            (heading ?n ?fromdir)
         )
     :effect
         (and
-            (not (node-second-pass-next ?n))
-            (not (rotating))
-            (increase (total-cost) (update-cost))
+            (not (heading ?n ?fromdir))
+            (heading ?n ?todir)
+            (rotating)
+            (node-first-pass-next ?n ?r ?n)
+            (increase (total-cost) (rotate-cost))
         )
 ))

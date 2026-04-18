@@ -12,6 +12,24 @@ load_dotenv()
 CAPABILITIES_CACHE = {}
 CACHE_FILE = Path("model_capabilities.json")
 
+MODEL_CONFIG = {
+    "openai/gpt-5-mini": {
+        "max_tokens": 18000,
+        "reasoning_effort": "medium",
+    },
+    "x-ai/grok-4.1-fast": {
+        "max_tokens": 18000,
+        "reasoning_effort": "low",
+    },
+    "xiaomi/mimo-v2-flash": {
+        "max_tokens": 18000,
+        "reasoning_effort": None,
+    },
+    "qwen/qwen3.5-35b-a3b:alibaba": {
+        "max_tokens": 18000,
+        "reasoning_effort": "medium",
+    },
+}
 
 def load_cache():
     global CAPABILITIES_CACHE
@@ -31,8 +49,6 @@ def save_cache():
 KNOWN_REASONING_SUPPORT = {
     "openai/gpt-5-mini": True,
     "x-ai/grok-4.1-fast": True,
-    "deepseek/deepseek-v3.2": True,
-    # "google/gemma-4-31b-it": True,
     "xiaomi/mimo-v2-flash": True,
     "qwen/qwen3.5-35b-a3b:alibaba": True,   # ← НОВАЯ + alibaba
 }
@@ -83,23 +99,25 @@ def supports_reasoning(model: str) -> bool:
 
 
 @retry(
-    stop=stop_after_attempt(4),                    # 4 попытки
-    wait=wait_exponential(multiplier=3, min=5, max=30),  # 5s → 10s → 20s → 30s
-    retry=retry_if_exception_type((json.JSONDecodeError, Exception)),  # ловим JSONDecode + любые другие
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=2, min=8, max=45),
+    retry=retry_if_exception_type((json.JSONDecodeError, Exception)),
     reraise=True
 )
 def call_openrouter(domain, problem, model: str = "openai/gpt-5-mini", reasoning_enabled: bool = False):
     load_cache()
 
-    # Если модель не поддерживает reasoning — выключаем
+    # Получаем конфиг именно для этой модели
+    base_model = model.split(':')[0] if ':' in model else model
+    config = MODEL_CONFIG.get(base_model, {"max_tokens": 16000, "reasoning_effort": "medium"})
+
     if reasoning_enabled and not supports_reasoning(model):
         reasoning_enabled = False
-        print(f"   ⚠️ reasoning отключён (модель не поддерживает)")
 
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=os.getenv('OPENROUTER_API_KEY'),
-        timeout=1500.0,
+        timeout=777.0,
     )
 
     def read_pddl(path):
@@ -129,6 +147,7 @@ Constraints:
 
 Strategy (internal, do not output):
 - Reason step-by-step silently.
+- Don't overthink.
 - Minimize the number of actions.
 - Avoid redundant or reversing actions.
 
@@ -142,18 +161,24 @@ Return ONLY the plan.
 Each line must contain exactly one action in PDDL format:
 (action-name arg1 arg2 ...)
 '''
+    extra_body = {}
+    if reasoning_enabled:
+        extra_body["reasoning"] = {"enabled": True}
+        if config["reasoning_effort"] is not None:
+            extra_body["reasoning"]["effort"] = config["reasoning_effort"]
+            
     start = time.time()
     mode = "reasoning" if reasoning_enabled else "plain"
     print(f"   → {model} | {mode} ... ", end="", flush=True)
 
     try:
         response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            extra_body={"reasoning": {"enabled": reasoning_enabled}} if reasoning_enabled else {},
-            temperature=0.0,
-            max_tokens=20000,
-        )
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                extra_body=extra_body,
+                temperature=0.0,
+                max_tokens=config["max_tokens"],
+            )
 
         duration = time.time() - start
         print(f"готово ({duration:.1f}s)")

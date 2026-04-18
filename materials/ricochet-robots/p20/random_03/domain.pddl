@@ -54,23 +54,6 @@
             (increase (total-cost) (stop-cost))
         )
 )
-
-(:action stop-at-robot
-    :parameters (?r - robot ?cat - cell ?cnext - cell ?dir - direction)
-    :precondition
-        (and
-            (is-moving ?r ?dir)
-            (at ?r ?cat)
-            (NEXT ?cat ?cnext ?dir)
-            (not (free ?cnext))
-        )
-    :effect
-        (and
-            (not (is-moving ?r ?dir))
-            (nothing-is-moving)
-            (increase (total-cost) (stop-cost))
-        )
-)
 (:action step
     :parameters (?r - robot ?cfrom - cell ?cto - cell ?dir - direction)
     :precondition
@@ -88,6 +71,23 @@
             (not (free ?cto))
             (at ?r ?cto)
             (increase (total-cost) (step-cost))
+        )
+)
+
+(:action stop-at-robot
+    :parameters (?r - robot ?cat - cell ?cnext - cell ?dir - direction)
+    :precondition
+        (and
+            (is-moving ?r ?dir)
+            (at ?r ?cat)
+            (NEXT ?cat ?cnext ?dir)
+            (not (free ?cnext))
+        )
+    :effect
+        (and
+            (not (is-moving ?r ?dir))
+            (nothing-is-moving)
+            (increase (total-cost) (stop-cost))
         )
 )
 (:action go

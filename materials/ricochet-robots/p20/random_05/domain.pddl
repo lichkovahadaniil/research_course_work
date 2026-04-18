@@ -39,23 +39,6 @@
 
 ;; Starts movement of the robot ?r in the direction ?dir
 
-
-(:action stop-at-robot
-    :parameters (?r - robot ?cat - cell ?cnext - cell ?dir - direction)
-    :precondition
-        (and
-            (is-moving ?r ?dir)
-            (at ?r ?cat)
-            (NEXT ?cat ?cnext ?dir)
-            (not (free ?cnext))
-        )
-    :effect
-        (and
-            (not (is-moving ?r ?dir))
-            (nothing-is-moving)
-            (increase (total-cost) (stop-cost))
-        )
-)
 (:action stop-at-barrier
     :parameters (?r - robot ?cat - cell ?dir - direction)
     :precondition
@@ -69,6 +52,25 @@
             (not (is-moving ?r ?dir))
             (nothing-is-moving)
             (increase (total-cost) (stop-cost))
+        )
+)
+(:action step
+    :parameters (?r - robot ?cfrom - cell ?cto - cell ?dir - direction)
+    :precondition
+        (and
+            (is-moving ?r ?dir)
+            (at ?r ?cfrom)
+            (NEXT ?cfrom ?cto ?dir)
+            (free ?cto)
+            (not (BLOCKED ?cfrom ?dir))
+        )
+    :effect
+        (and
+            (not (at ?r ?cfrom))
+            (free ?cfrom)
+            (not (free ?cto))
+            (at ?r ?cto)
+            (increase (total-cost) (step-cost))
         )
 )
 (:action go
@@ -93,22 +95,20 @@
             (increase (total-cost) (go-cost))
         )
 )
-(:action step
-    :parameters (?r - robot ?cfrom - cell ?cto - cell ?dir - direction)
+
+(:action stop-at-robot
+    :parameters (?r - robot ?cat - cell ?cnext - cell ?dir - direction)
     :precondition
         (and
             (is-moving ?r ?dir)
-            (at ?r ?cfrom)
-            (NEXT ?cfrom ?cto ?dir)
-            (free ?cto)
-            (not (BLOCKED ?cfrom ?dir))
+            (at ?r ?cat)
+            (NEXT ?cat ?cnext ?dir)
+            (not (free ?cnext))
         )
     :effect
         (and
-            (not (at ?r ?cfrom))
-            (free ?cfrom)
-            (not (free ?cto))
-            (at ?r ?cto)
-            (increase (total-cost) (step-cost))
+            (not (is-moving ?r ?dir))
+            (nothing-is-moving)
+            (increase (total-cost) (stop-cost))
         )
 ))

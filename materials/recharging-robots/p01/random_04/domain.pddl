@@ -38,22 +38,39 @@
 ;; Move the robot ?r from the location ?from to the location ?to while
 ;; consuming the battery -- it is decreased by one from ?fpre to ?fpost
 
-(:action stop-and-guard
-    :parameters (?r - robot ?l - location)
+(:action verify-guard-config
+    :parameters (?c - config)
     :precondition
         (and
-            (not (stopped ?r))
-            (at ?r ?l)
+            (forall (?l - location)
+                (imply (GUARD-CONFIG ?c ?l) (guarded ?l))
+            )
         )
     :effect
         (and
-            (stopped ?r)
-            (guarded ?l)
-            (forall (?l2 - location)
-                (when (or (CONNECTED ?l ?l2) (CONNECTED ?l2 ?l))
-                      (guarded ?l2)
-                )
-            )
+            (forall (?r - robot) (not (stopped ?r)))
+            (forall (?l - location) (not (guarded ?l)))
+            (config-fullfilled ?c)
+        )
+)
+(:action move
+    :parameters (?r - robot ?from - location ?to - location
+                 ?fpre - battery-level ?fpost - battery-level)
+    :precondition
+        (and
+            (not (stopped ?r))
+            (at ?r ?from)
+            (battery ?r ?fpre)
+            (BATTERY-PREDECESSOR ?fpost ?fpre)
+            (or (CONNECTED ?from ?to) (CONNECTED ?to ?from))
+        )
+    :effect
+        (and
+            (not (at ?r ?from))
+            (at ?r ?to)
+            (not (battery ?r ?fpre))
+            (battery ?r ?fpost)
+            (increase (total-cost) (move-cost))
         )
 )
 (:action recharge
@@ -79,38 +96,21 @@
             (increase (total-cost) (recharge-cost))
         )
 )
-(:action move
-    :parameters (?r - robot ?from - location ?to - location
-                 ?fpre - battery-level ?fpost - battery-level)
+(:action stop-and-guard
+    :parameters (?r - robot ?l - location)
     :precondition
         (and
             (not (stopped ?r))
-            (at ?r ?from)
-            (battery ?r ?fpre)
-            (BATTERY-PREDECESSOR ?fpost ?fpre)
-            (or (CONNECTED ?from ?to) (CONNECTED ?to ?from))
+            (at ?r ?l)
         )
     :effect
         (and
-            (not (at ?r ?from))
-            (at ?r ?to)
-            (not (battery ?r ?fpre))
-            (battery ?r ?fpost)
-            (increase (total-cost) (move-cost))
-        )
-)
-(:action verify-guard-config
-    :parameters (?c - config)
-    :precondition
-        (and
-            (forall (?l - location)
-                (imply (GUARD-CONFIG ?c ?l) (guarded ?l))
+            (stopped ?r)
+            (guarded ?l)
+            (forall (?l2 - location)
+                (when (or (CONNECTED ?l ?l2) (CONNECTED ?l2 ?l))
+                      (guarded ?l2)
+                )
             )
-        )
-    :effect
-        (and
-            (forall (?r - robot) (not (stopped ?r)))
-            (forall (?l - location) (not (guarded ?l)))
-            (config-fullfilled ?c)
         )
 ))

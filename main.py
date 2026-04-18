@@ -5,28 +5,24 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
-from domain_generation import *      # generate_paths, process_domains, DOMAIN_TYPES
+from domain_generation import *      
 from api_call import call_openrouter, supports_reasoning
 from checker import build_metrics
 
 MODEL_PROVIDER_MAP = {
     "xiaomi/mimo-v2-flash": "xiaomi/mimo-v2-flash:fp8",
-    "deepseek/deepseek-v3.2": "deepseek/deepseek-v3.2:novita/fp8", 
     "qwen/qwen3.5-35b-a3b:alibaba": "qwen/qwen3.5-35b-a3b:alibaba",
 }
 
 TEST_MODELS = [
     "openai/gpt-5-mini",
     "x-ai/grok-4.1-fast",
-    "deepseek/deepseek-v3.2",
-    # "google/gemma-4-31b-it",
     "xiaomi/mimo-v2-flash",
     "qwen/qwen3.5-35b-a3b:alibaba",
 ]
 
 print_lock = threading.Lock()
 spendings_lock = threading.Lock()
-
 
 def safe_print(*args, **kwargs):
     with print_lock:
@@ -111,55 +107,6 @@ def build_variant_summary(variant_dir: Path):
 
     return summary
 
-def process_single_model(
-    model_full: str,
-    domain_file: Path,
-    problem_file: Path,
-    optimal_plan: Path,
-    variant_dir: Path,
-) -> tuple[str | None, dict | None]:
-    short_name = model_full.split('/')[-1].replace(':', '-').replace('.', '-')
-    model_dir = variant_dir / short_name
-    model_dir.mkdir(parents=True, exist_ok=True)
-
-    # ← НОВОЕ: принудительно используем нужный провайдер/fp8
-    model_to_call = MODEL_PROVIDER_MAP.get(model_full, model_full)
-
-    safe_print(f"[{short_name}] 📌 Запуск → {variant_dir.name} (provider: {model_to_call})")
-
-    try:
-        res = call_openrouter(
-            domain_file, problem_file, model=model_to_call, reasoning_enabled=True
-        )
-
-        plan_path = model_dir / 'llm.plan'
-        with open(plan_path, 'w', encoding='utf-8') as f:
-            f.write(res['plan'])
-
-        append_spending(res, model_full, domain_file, problem_file)
-
-        metrics = build_metrics(domain_file, problem_file, plan_path, optimal_plan)
-
-        llm_cost = metrics.get("LLM_COST", {}).get("cost")
-        safe_print(f"[{short_name}] ✅ {variant_dir.name}/llm.plan | VAL: {metrics['VAL'][0]} | COST: {llm_cost}")
-
-        key = f"{short_name}_reasoning"
-        entry = {
-            **{k: v for k, v in res.items() if k != 'plan'},
-            "metrics": metrics,
-            "plan_file": str(plan_path)
-        }
-
-        # ← НОВОЕ: сохраняем результат модели (нужно для full-режима)
-        with open(model_dir / "llm_result.json", 'w', encoding='utf-8') as f:
-            json.dump(entry, f, ensure_ascii=False, indent=2)
-
-        return key, entry
-
-    except Exception as e:
-        safe_print(f"[{short_name}] ❌ Ошибка в {variant_dir.name}: {e}")
-        return None, None
-
 
 def build_global_metrics(domain: str):
     """Собирает materials/metric.json со всей структурой"""
@@ -197,177 +144,141 @@ def build_global_metrics(domain: str):
         json.dump(metric, f, ensure_ascii=False, indent=2)
     safe_print(f"📊 Обновлён глобальный metric.json ({len(metric[domain])} проблем)")
 
+def process_single_model(
+    model_full: str,
+    domain_file: Path,
+    problem_file: Path,
+    optimal_plan: Path,
+    variant_dir: Path,
+    force: bool = False,
+) -> tuple[str | None, dict | None]:
+    short_name = model_full.split('/')[-1].replace(':', '-').replace('.', '-')
+    model_dir = variant_dir / short_name
+    model_dir.mkdir(parents=True, exist_ok=True)
 
-def main():
-    parser = argparse.ArgumentParser(...)
-    parser.add_argument('--test', action='store_true')
-    parser.add_argument('--domain', type=str, default='folding')
-    parser.add_argument('--problem', type=str, default='p01')
-    parser.add_argument('--variant', type=str, default='canonical')
-    parser.add_argument('--full', action='store_true')
-    parser.add_argument('--workers', type=int, default=30)
-    parser.add_argument('--all-variants', action='store_true',
-                        help='В тестовом режиме обработать ВСЕ 14 вариантов для указанной проблемы')
+    plan_path = model_dir / 'llm.plan'
+    result_path = model_dir / 'llm_result.json'
 
-    args = parser.parse_args()
+    # === КРИТИЧНО: пропуск уже обработанного ===
+    if not force and plan_path.exists() and result_path.exists():
+        safe_print(f"[{short_name}] ⏭  {variant_dir.name} — уже есть llm.plan, пропуск")
+        with open(result_path, encoding='utf-8') as f:
+            entry = json.load(f)
+        return f"{short_name}_reasoning", entry
 
-    safe_print("🚀 LLM Planning Pipeline — FULL MODE + provider mapping + per-variant summaries")
-    safe_print("=" * 140)
+    model_to_call = MODEL_PROVIDER_MAP.get(model_full, model_full)
+    safe_print(f"[{short_name}] 📌 Запуск → {variant_dir.name} (provider: {model_to_call})")
 
-    generate_paths(DOMAIN_TYPES, force=False)
-    process_domains(DOMAIN_TYPES, force=False)
+    try:
+        res = call_openrouter(
+            domain_file, problem_file, model=model_to_call, reasoning_enabled=True
+        )
 
-    # Предпроверка reasoning
-    safe_print("🔍 Предпроверка capabilities...")
-    for model_full in TEST_MODELS:
-        supports_reasoning(model_full)
-    safe_print("✅ Кэш готов.\n")
+        with open(plan_path, 'w', encoding='utf-8') as f:
+            f.write(res['plan'])
 
-    if args.full:
-        safe_print(f"🔥 FULL RUN для домена: {args.domain} (workers={args.workers})\n")
-        domain_path = Path(f"materials/{args.domain}")
+        append_spending(res, model_full, domain_file, problem_file)
 
-        for i in range(1, 21):
-            prob_name = f"p{i:02d}"
-            prob_dir = domain_path / prob_name
-            if not prob_dir.exists():
-                continue
+        metrics = build_metrics(domain_file, problem_file, plan_path, optimal_plan)
 
-            problem_file = prob_dir / f"{prob_name}.pddl"
-            optimal_plan = prob_dir / f"{prob_name}.plan"
+        llm_cost = metrics.get("LLM_COST", {}).get("cost")
+        safe_print(f"[{short_name}] ✅ {variant_dir.name}/llm.plan | VAL: {metrics['VAL'][0]} | COST: {llm_cost}")
 
-            variants = [d for d in prob_dir.iterdir() if d.is_dir() and (d / "domain.pddl").exists()]
+        key = f"{short_name}_reasoning"
+        entry = {**{k: v for k, v in res.items() if k != 'plan'}, "metrics": metrics, "plan_file": str(plan_path)}
 
-            safe_print(f"📦 {prob_name} → {len(variants)} вариантов × {len(TEST_MODELS)} моделей")
+        with open(result_path, 'w', encoding='utf-8') as f:
+            json.dump(entry, f, ensure_ascii=False, indent=2)
 
-            tasks = []
-            for variant_dir in variants:
-                for model_full in TEST_MODELS:
-                    tasks.append((model_full, variant_dir / "domain.pddl", problem_file, optimal_plan, variant_dir))
+        return key, entry
 
-            with ThreadPoolExecutor(max_workers=args.workers) as executor:
-                futures = [executor.submit(process_single_model, *task) for task in tasks]
-                for _ in as_completed(futures):
-                    pass
+    except Exception as e:
+        safe_print(f"[{short_name}] ❌ Ошибка в {variant_dir.name}: {e}")
+        return None, None
 
-            # ← НОВОЕ: после всех моделей строим summary для КАЖДОГО варианта
-            safe_print(f"📊 Генерируем llm_summary.json для {prob_name}...")
-            for variant_dir in variants:
-                build_variant_summary(variant_dir)
 
-            safe_print(f"✅ {prob_name} завершён\n")
+def run_for_selection(domain: str, problem: str | None = None, variant: str | None = None, force: bool = False, workers: int = 40):
+    """Единая функция — обрабатывает любой поднабор materials"""
+    domain_path = Path(f"materials/{domain}")
+    if not domain_path.exists():
+        safe_print(f"❌ Домен {domain} не найден")
+        return
 
-        build_global_metrics(args.domain)
-        safe_print("🎉 FULL RUN ЗАВЕРШЁН. metric.json готов.")
-    # ===================== ТЕСТ =====================
+    # Собираем все задачи
+    tasks = []
+    if problem is None:  # весь домен
+        prob_dirs = sorted(domain_path.glob("p*"))
     else:
-        safe_print(f"\n🧪 ТЕСТ: {args.domain}/{args.problem} {'(все 14 вариантов)' if args.all_variants else args.variant}\n")
+        prob_dirs = [domain_path / problem]
 
-        curr_path = Path(f'materials/{args.domain}') / args.problem
-        problem_file = curr_path / f'{args.problem}.pddl'
-        optimal_plan = curr_path / f'{args.problem}.plan'
+    for prob_dir in prob_dirs:
+        if not prob_dir.is_dir():
+            continue
+        prob_name = prob_dir.name
+        problem_file = prob_dir / f"{prob_name}.pddl"
+        optimal_plan = prob_dir / f"{prob_name}.plan"
 
-        if args.all_variants:
-            variants = [d for d in curr_path.iterdir() 
-                        if d.is_dir() and (d / "domain.pddl").exists()]
-            safe_print(f"📦 Найдено {len(variants)} вариантов → полный параллелизм {len(variants)*len(TEST_MODELS)} задач\n")
+        if variant is None or variant == "all":
+            variants = [d for d in prob_dir.iterdir() if d.is_dir() and (d / "domain.pddl").exists()]
         else:
-            variant_dir = curr_path / args.variant
-            variants = [variant_dir]
-            safe_print(f"📦 Один вариант: {args.variant}\n")
+            variants = [prob_dir / variant]
 
-        # === ПОЛНЫЙ ПАРАЛЛЕЛИЗМ КАК В FULL-РЕЖИМЕ ===
-        tasks = []
-        for variant_dir in variants:
+        for v_dir in variants:
             for model_full in TEST_MODELS:
                 tasks.append((
                     model_full,
-                    variant_dir / "domain.pddl",
+                    v_dir / "domain.pddl",
                     problem_file,
                     optimal_plan,
-                    variant_dir
+                    v_dir,
+                    force
                 ))
 
-        safe_print(f"🚀 Запускаем {len(tasks)} запросов параллельно (workers={args.workers})...\n")
+    safe_print(f"🚀 Запускаем {len(tasks)} задач (workers={workers})...")
 
-        results = []  # собираем только для последней таблицы (если нужно)
-        with ThreadPoolExecutor(max_workers=args.workers) as executor:
-            futures = [executor.submit(process_single_model, *task) for task in tasks]
-            for future in as_completed(futures):
-                key, entry = future.result()
-                if key and entry:
-                    results.append((key, entry))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(process_single_model, *task) for task in tasks]
+        for _ in as_completed(futures):
+            pass
 
-        # После всех запросов строим summary/metrics для КАЖДОГО варианта
-        safe_print(f"\n📊 Генерируем llm_summary.json + llm_metrics.json для всех вариантов...")
-        for variant_dir in variants:
-            build_variant_summary(variant_dir)
-            safe_print(f"   ✅ {variant_dir.name} → файлы готовы")
+    # После всего — строим summary/metrics
+    for prob_dir in (prob_dirs if problem else domain_path.glob("p*")):
+        variants = [d for d in prob_dir.iterdir() if d.is_dir() and (d / "domain.pddl").exists()]
+        for v_dir in variants:
+            build_variant_summary(v_dir)
 
-        build_global_metrics(args.domain)
+    build_global_metrics(domain)
+    safe_print("🎉 Готово! metric.json обновлён")
 
-        # Для таблицы в конце используем последний вариант (или можно убрать таблицу в all-variants)
-        variant_dir = variants[-1]  # просто берём последний для таблицы
 
-    # === 2. Свежий metrics.json (без старого мусора) ===
-    meta = {
-        "problem": str(problem_file),
-        "domain_variant": args.variant,
-        "test_models": TEST_MODELS
-    }
-    for key, entry in results:
-        meta[key] = entry
+def main():
+    parser = argparse.ArgumentParser(description="LLM Planning Pipeline — универсальный режим")
+    parser.add_argument('--domain', type=str, default='folding')
+    parser.add_argument('--problem', type=str, default=None, help='p01 или all (None = весь домен)')
+    parser.add_argument('--variant', type=str, default=None, help='canonical / random_05 / all (None = все)')
+    parser.add_argument('--workers', type=int, default=40)
+    parser.add_argument('--force', action='store_true', help='Перезапускать даже если llm.plan уже есть')
 
-    metrics_path = variant_dir / 'llm_metrics.json'
-    with open(metrics_path, 'w', encoding='utf-8') as f:
-        json.dump(meta, f, ensure_ascii=False, indent=2)
+    args = parser.parse_args()
 
-    # === 3. Сводный summary.json + таблица ===
-    summary = build_variant_summary(variant_dir)
-
-# === 4. Красивая таблица (добавлена колонка LEN) ===
-    safe_print("\n" + "=" * 140)
-    safe_print(f"{'Модель':<20} {'VALID':<6} {'COST':<8} {'LEN':<6} {'GAP%':<8} {'ORD_DIST':<10} {'DUR(s)':<8} {'TOKENS':<9}")
-    safe_print("-" * 140)
-
-    improvements = []
-    for model, s in summary.items():
-        valid_str = "✅" if s["valid"] else "❌"
-        cost_str = f"{s['llm_cost']:.2f}" if s['llm_cost'] is not None else "N/A"
-        len_str = str(s['llm_actions_len']) if s['llm_actions_len'] is not None else "N/A"
-        bug_str = "bug" if s.get("bug_optimal") else "clear"
-        gap_str = f"{s['cost_gap_%']:+.1f}%" if s['cost_gap_%'] is not None else "N/A"
-        ord_str = f"{s['order_distance_norm']:.4f}" if s['order_distance_norm'] is not None else "N/A"
-        dur_str = f"{s['duration_sec']:.1f}" if s['duration_sec'] is not None else "N/A"
-        tokens_str = str(s['total_tokens']) if s['total_tokens'] is not None else "N/A"
-        if s.get("super_optimal"):
-            improvements.append({
-                "domain": args.domain,
-                "problem": args.problem,
-                "variant": args.variant,
-                "model": model,
-                "llm_cost": s["llm_cost"],
-                "optimal_cost": s["optimal_cost"],
-                "gap_%": s["cost_gap_%"],
-                "plan_path": str(variant_dir / f"{model.replace(':', '-')}_reasoning/llm.plan")  # адаптировать
-            })
-    
-
-        safe_print(f"{model:<20} {valid_str:<6} {cost_str:<8} {len_str:<6} {bug_str:<6} {gap_str:<8} {ord_str:<10} {dur_str:<8} {tokens_str:<9}")
-    
-    if improvements:
-        imp_path = Path("discovered_improvements.json")
-        data = []
-        if imp_path.exists():
-            data = json.loads(imp_path.read_text(encoding='utf-8'))
-        data.extend(improvements)
-        imp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-        safe_print(f"🚀 Найдено {len(improvements)} super-optimal планов! → {imp_path}")
-
-    safe_print("🎉 FULL RUN ЗАВЕРШЁН. metric.json готов.")
+    safe_print("🚀 LLM Planning Pipeline — универсальный запуск")
     safe_print("=" * 140)
-    safe_print(f"🎉 Тест завершён!")
-    safe_print(f"   📁 Метрики   → {metrics_path}")
+
+    generate_paths(DOMAIN_TYPES, force=False)
+    selected_problems = [1, 5, 10, 15, 20]
+    process_domains(DOMAIN_TYPES, force=args.force, problems=selected_problems)
+
+    # Предпроверка
+    for model_full in TEST_MODELS:
+        supports_reasoning(model_full)
+
+    run_for_selection(
+        domain=args.domain,
+        problem=args.problem,
+        variant=args.variant,
+        force=args.force,
+        workers=args.workers
+    )
 
 
 if __name__ == '__main__':
