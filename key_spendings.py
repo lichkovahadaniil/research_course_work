@@ -1,32 +1,38 @@
+import os
+
 import requests
 from dotenv import load_dotenv
-import os
+
 
 load_dotenv()
 
-response = requests.get(
-    url="https://openrouter.ai/api/v1/auth/key",
-    headers={
-        "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}"
-    }
-)
 
-if response.status_code == 200:
-    data = response.json()
+def main() -> None:
+    response = requests.get(
+        url="https://openrouter.ai/api/v1/auth/key",
+        headers={"Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}"},
+        timeout=30,
+    )
 
-    limit = data['data']['limit']
-    usage = data['data']['usage']
+    if response.status_code != 200:
+        print(f"Error: {response.status_code}")
+        print(response.text)
+        return
+
+    data = response.json()["data"]
+    limit = data.get("limit")
+    usage = data.get("usage")
+    remaining = None if limit is None or usage is None else limit - usage
 
     if limit is None:
-        print("На ключе нет отдельного лимита (используется общий баланс аккаунта).")
+        print("The key does not have a dedicated limit; it uses the shared account balance.")
     else:
-        remaining = limit - usage
-        print(f"Остаток на ключе: ${remaining:.4f} (из {limit})")
+        print(f"Remaining key balance: ${remaining:.4f} (out of {limit})")
 
-else:
-    print(f"Ошибка: {response.status_code}")
-    print(response.text)
-    
-print("limit:", limit)
-print("usage:", usage)
-print("remaining:", None if limit is None else limit - usage)
+    print("limit:", limit)
+    print("usage:", usage)
+    print("remaining:", remaining)
+
+
+if __name__ == "__main__":
+    main()

@@ -69,23 +69,6 @@
 ;; Rotates the string after this node and start the first pass computing
 ;; absolute directions and coordinates of other nodes
 
-(:action rotate
-    :parameters (?n - node ?r - rotation ?fromdir ?todir - direction)
-    :precondition
-        (and
-            (not (rotating))
-            (NEXT-DIRECTION ?fromdir ?r ?todir)
-            (heading ?n ?fromdir)
-        )
-    :effect
-        (and
-            (not (heading ?n ?fromdir))
-            (heading ?n ?todir)
-            (rotating)
-            (node-first-pass-next ?n ?r ?n)
-            (increase (total-cost) (rotate-cost))
-        )
-)
 (:action rotate-second-pass
     :parameters (?n1 - node ?n1x ?n1y - coord ?n1dir - direction
                  ?n2 - node ?n2x ?n2y - coord)
@@ -152,21 +135,6 @@
         )
 )
 
-(:action rotate-second-pass-end
-    :parameters (?n - node)
-    :precondition
-        (and
-            (END-NODE ?n)
-            (node-second-pass-next ?n)
-        )
-    :effect
-        (and
-            (not (node-second-pass-next ?n))
-            (not (rotating))
-            (increase (total-cost) (update-cost))
-        )
-)
-
 (:action rotate-first-pass-end
     :parameters (?nstart - node ?r - rotation
                  ?n1 - node
@@ -185,5 +153,37 @@
             (not (node-first-pass-next ?nstart ?r ?n1))
             (node-second-pass-next ?nstart)
             (increase (total-cost) (update-cost))
+        )
+)
+
+(:action rotate-second-pass-end
+    :parameters (?n - node)
+    :precondition
+        (and
+            (END-NODE ?n)
+            (node-second-pass-next ?n)
+        )
+    :effect
+        (and
+            (not (node-second-pass-next ?n))
+            (not (rotating))
+            (increase (total-cost) (update-cost))
+        )
+)
+(:action rotate
+    :parameters (?n - node ?r - rotation ?fromdir ?todir - direction)
+    :precondition
+        (and
+            (not (rotating))
+            (NEXT-DIRECTION ?fromdir ?r ?todir)
+            (heading ?n ?fromdir)
+        )
+    :effect
+        (and
+            (not (heading ?n ?fromdir))
+            (heading ?n ?todir)
+            (rotating)
+            (node-first-pass-next ?n ?r ?n)
+            (increase (total-cost) (rotate-cost))
         )
 ))

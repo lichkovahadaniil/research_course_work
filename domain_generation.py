@@ -1,84 +1,96 @@
 import shutil
 from pathlib import Path
+
 from shuffler import shuffle
 
-# Список доменов
-DOMAIN_TYPES = ['folding', 'labyrinth', 'recharging-robots', 'ricochet-robots', 'rubiks-cube']
 
-def generate_paths(domains, force: bool = False):
-    for d in domains:
-        src_path = Path(f'ipc2023-dataset-main/opt/{d}')
-        dest_path = Path(f'materials/{d}')
+DOMAIN_TYPES = ["folding", "labyrinth", "recharging-robots", "ricochet-robots", "rubiks-cube"]
+
+
+def _normalize_problem_ids(problems: list[str] | None) -> list[str]:
+    if problems is None:
+        return [f"p{i:02d}" for i in range(1, 21)]
+    return sorted(set(problems))
+
+
+def generate_paths(domains: list[str], problems: list[str] | None = None, force: bool = False) -> None:
+    problem_ids = _normalize_problem_ids(problems)
+
+    for domain_name in domains:
+        src_path = Path(f"ipc2023-dataset-main/opt/{domain_name}")
+        dest_path = Path(f"materials/{domain_name}")
 
         dest_path.mkdir(parents=True, exist_ok=True)
 
-        domain_dest = dest_path / 'domain.pddl'
+        domain_dest = dest_path / "domain.pddl"
         if force or not domain_dest.exists():
-            shutil.copy(src_path / 'domain.pddl', domain_dest)
+            shutil.copy(src_path / "domain.pddl", domain_dest)
 
-        for i in range(1, 21):
-            name = f'p{i:02d}'
-            subfolder = dest_path / name
+        for problem_id in problem_ids:
+            subfolder = dest_path / problem_id
             subfolder.mkdir(exist_ok=True)
 
-            problem_dest = subfolder / f'{name}.pddl'
-            plan_dest = subfolder / f'{name}.plan'
+            problem_dest = subfolder / f"{problem_id}.pddl"
+            plan_dest = subfolder / f"{problem_id}.plan"
 
             if force or not problem_dest.exists():
-                shutil.copy(src_path / f'{name}.pddl', problem_dest)
+                shutil.copy(src_path / f"{problem_id}.pddl", problem_dest)
 
-            if not plan_dest.exists():
-                shutil.copy(src_path / f'{name}.plan', plan_dest)
-                print(f"   → {name}.plan скопирован (впервые)")
-            else:
-                print(f"   → {name}.plan уже существует — защищён от перезаписи")
+            if force or not plan_dest.exists():
+                shutil.copy(src_path / f"{problem_id}.plan", plan_dest)
 
 
-def process_domains(domains, force: bool = False, problems: list[int] | None = None):
-    """
-    Запускает shuffle для указанных проблем.
-    problems=None → все 20 проблем
-    problems=[1,5,10,15,20] → только эти 5
-    """
-    if problems is None:
-        problems = list(range(1, 21))
-    else:
-        problems = sorted(set(problems))
+def process_domains(
+    domains: list[str],
+    problems: list[str] | None = None,
+    force: bool = False,
+    shuffle_seed: int = 52,
+    sampling_profile: list[str] | None = None,
+    variant_generation_version: str = "v2",
+) -> None:
+    problem_ids = _normalize_problem_ids(problems)
+    sampling_profile = sampling_profile or problem_ids
 
-    total_problems = len(domains) * len(problems)
+    total_problems = len(domains) * len(problem_ids)
     processed = 0
     skipped = 0
 
-    for d in domains:
-        src_path = Path(f'materials/{d}')
-        domain_file = src_path / 'domain.pddl'
-        
-        print(f"\n🔄 Домен: {d}  ({len(problems)} проблем)")
+    for domain_name in domains:
+        src_path = Path(f"materials/{domain_name}")
+        domain_file = src_path / "domain.pddl"
 
-        for i in problems:
-            name = f'p{i:02d}'
-            problem_file = src_path / name / f'{name}.pddl'
-            optimal_plan_file = src_path / name / f'{name}.plan'
-            shuffle_path = src_path / name
+        print(f"\nPreparing domain {domain_name} ({len(problem_ids)} problems)")
 
-            already_shuffled = (shuffle_path / 'canonical').exists()
+        for problem_id in problem_ids:
+            problem_file = src_path / problem_id / f"{problem_id}.pddl"
+            optimal_plan_file = src_path / problem_id / f"{problem_id}.plan"
+            shuffle_path = src_path / problem_id
 
+            already_shuffled = (shuffle_path / "canonical").exists()
             if already_shuffled and not force:
-                print(f"   ⏭  {name} — уже обработан, пропуск")
+                print(f"  skip {problem_id}: shuffle variants already exist")
                 skipped += 1
-            else:
-                if already_shuffled and force:
-                    print(f"   ♻️  {name} — force=True, пересоздаём shuffle")
-                else:
-                    print(f"   ▶️  {name} — генерация 9 вариантов...")
-                
-                shuffle(domain_file, problem_file, optimal_plan_file, shuffle_path)
-                processed += 1
+                continue
 
-    print(f"\n{'='*80}")
-    print(f"✅ process_domains завершён!")
-    print(f"   Обработано: {processed} проблем")
-    print(f"   Пропущено: {skipped} проблем")
-    print(f"   Всего проблем в датасете: {total_problems}")
-    if force:
-        print("   ⚠️  Режим force=True — все shuffle пересозданы")
+            if already_shuffled and force:
+                print(f"  rebuild {problem_id}: regenerating shuffle variants")
+            else:
+                print(f"  build {problem_id}: generating shuffle variants")
+
+            shuffle(
+                domain_file,
+                problem_file,
+                optimal_plan_file,
+                shuffle_path,
+                seed=shuffle_seed,
+                problem_id=problem_id,
+                sampling_profile=sampling_profile,
+                variant_generation_version=variant_generation_version,
+            )
+            processed += 1
+
+    print(f"\n{'=' * 80}")
+    print("prepare finished")
+    print(f"  processed: {processed}")
+    print(f"  skipped:   {skipped}")
+    print(f"  total:     {total_problems}")

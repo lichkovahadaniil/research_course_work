@@ -14,20 +14,28 @@ CACHE_FILE = Path("model_capabilities.json")
 
 MODEL_CONFIG = {
     "openai/gpt-5-mini": {
-        "max_tokens": 18000,
+        "max_tokens": None,
         "reasoning_effort": "medium",
     },
     "x-ai/grok-4.1-fast": {
-        "max_tokens": 18000,
-        "reasoning_effort": "low",
+        "max_tokens": None,
+        "reasoning_effort": "medium",
     },
     "xiaomi/mimo-v2-flash": {
-        "max_tokens": 18000,
-        "reasoning_effort": None,
+        "max_tokens": None,
+        "reasoning_effort": "medium",
+        "temperature": 0.8,
+        "top_p": 0.95,
     },
     "qwen/qwen3.5-35b-a3b:alibaba": {
-        "max_tokens": 18000,
+        "max_tokens": None,
         "reasoning_effort": "medium",
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "top_k": 20,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0, # OpenAI-совместимый аналог repetition_penalty
+        # repetition_penalty=1.0 из HF здесь не нужен — OpenRouter/OpenAI использует frequency_penalty
     },
 }
 
@@ -37,8 +45,8 @@ def load_cache():
         try:
             with open(CACHE_FILE, encoding='utf-8') as f:
                 CAPABILITIES_CACHE = json.load(f)
-        except:
-            pass
+        except json.JSONDecodeError:
+            CAPABILITIES_CACHE = {}
 
 
 def save_cache():
@@ -91,7 +99,7 @@ def supports_reasoning(model: str) -> bool:
         )
         CAPABILITIES_CACHE[model] = True
         print("✅ поддерживает")
-    except:
+    except Exception:
         CAPABILITIES_CACHE[model] = False
         print("❌ не поддерживает")
     save_cache()
@@ -172,13 +180,22 @@ Each line must contain exactly one action in PDDL format:
     print(f"   → {model} | {mode} ... ", end="", flush=True)
 
     try:
-        response = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                extra_body=extra_body,
-                temperature=0.0,
-                max_tokens=config["max_tokens"],
-            )
+        # Динамически берём параметры из MODEL_CONFIG
+        create_kwargs = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "extra_body": extra_body,
+            "temperature": config.get("temperature", 0.0),
+            "max_tokens": config.get("max_tokens"),
+            "top_p": config.get("top_p", 1.0),
+        }
+
+        # Добавляем только те параметры, которые реально указаны в конфиге модели
+        for param in ["top_k", "presence_penalty", "frequency_penalty"]:
+            if param in config:
+                create_kwargs[param] = config[param]
+
+        response = client.chat.completions.create(**create_kwargs)
 
         duration = time.time() - start
         print(f"готово ({duration:.1f}s)")

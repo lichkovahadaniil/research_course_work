@@ -1,164 +1,258 @@
-import subprocess
 import re
+import subprocess
+from functools import lru_cache
 from pathlib import Path
-from typing import List, Tuple, Dict
-
-def validate_plan(domain_path, problem_path, plan_path):
-    result = subprocess.run(
-        ['validate', '-c', domain_path, problem_path, plan_path], 
-        capture_output=True, text=True
-    )
-    # План валиден только если код возврата 0 и в выводе есть заветная фраза
-    is_valid = (result.returncode == 0) and ('Plan valid' in result.stdout)
-    return is_valid, result.stdout + result.stderr  
+from typing import Any
 
 
-def extract_plan_cost_from_validate(output: str) -> float | None:
-    """Извлекает реальную стоимость из вывода validate"""
-    # 1. Классический вариант
-    match = re.search(r'Plan cost:\s*(\d+\.?\d*)', output)
-    if match:
-        return float(match.group(1))
-    
-    # 2. Folding / новые домены (самое важное!)
-    match = re.search(r'Final value:\s*(\d+\.?\d*)', output)
-    if match:
-        return float(match.group(1))
-    
+PLAN_COST_PATTERNS = (
+    r"Plan cost:\s*([0-9]+(?:\.[0-9]+)?)",
+    r"Final value:\s*([0-9]+(?:\.[0-9]+)?)",
+    r"Value:\s*([0-9]+(?:\.[0-9]+)?)",
+)
+PLAN_LENGTH_PATTERN = re.compile(r"Plan size:\s*(\d+)")
+FIRST_FAILURE_PATTERNS = (
+    re.compile(r"unsatisfied precondition at time\s+(\d+)", re.IGNORECASE),
+    re.compile(r"Checking next happening \(time\s+(\d+)\)\s*[\r\n]+Plan failed", re.IGNORECASE),
+)
+ACTION_LINE_PATTERN = re.compile(r"^\s*\(([^;].*)\)\s*$")
+
+
+def _read_text(path: str | Path) -> str:
+    return Path(path).read_text(encoding="utf-8")
+
+
+def extract_numeric_value(text: str, patterns: tuple[str, ...] = PLAN_COST_PATTERNS) -> float | None:
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return float(match.group(1))
     return None
 
 
-def get_actions_sequence(plan_path: str | Path) -> List[str]:
-    """Извлекает только имена действий в порядке выполнения"""
-    with open(plan_path, encoding='utf-8') as f:
-        lines = f.readlines()
-    
-    actions = []
-    for line in lines:
-        line = line.strip()
-        if line.startswith('(') and line.endswith(')'):
-            # берём первое слово внутри скобок
-            match = re.match(r'\(([\w-]+)', line)
-            if match:
-                actions.append(match.group(1))
+def read_plan_actions(plan_path: str | Path) -> list[str]:
+    actions: list[str] = []
+    for raw_line in _read_text(plan_path).splitlines():
+        line = raw_line.strip()
+        if ACTION_LINE_PATTERN.match(line):
+            actions.append(" ".join(line.lower().split()))
     return actions
 
 
-def action_order_distance(llm_plan_path: str | Path, optimal_plan_path: str | Path) -> Dict:
-    """
-    Комбинированная метрика:
-    - Kendall-Tau на общих действиях
-    - +1 за каждое лишнее действие (insertion)
-    - +1 за каждое пропущенное действие (deletion)
-    """
-    llm_seq = get_actions_sequence(llm_plan_path)
-    opt_seq = get_actions_sequence(optimal_plan_path)
+def get_plan_cost(plan_path: str | Path) -> int:
+    return len(read_plan_actions(plan_path))
 
-    # Общие действия (сохраняем порядок в оптимальном)
-    common = [a for a in opt_seq if a in llm_seq]
 
-    # Kendall-Tau только на общих действиях
-    def kendall_tau(order1: List[str], order2: List[str]) -> int:
-        pos = {act: idx for idx, act in enumerate(order2)}
+def _run_validator(flag: str, domain_path: str | Path, problem_path: str | Path, plan_path: str | Path) -> tuple[int, str]:
+    result = subprocess.run(
+        ["validate", flag, str(domain_path), str(problem_path), str(plan_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode, result.stdout + result.stderr
+
+
+def extract_plan_length(output: str, plan_path: str | Path | None = None) -> int | None:
+    match = PLAN_LENGTH_PATTERN.search(output)
+    if match:
+        return int(match.group(1))
+    if plan_path is not None:
+        return len(read_plan_actions(plan_path))
+    return None
+
+
+def extract_first_failure_step(output: str) -> int | None:
+    for pattern in FIRST_FAILURE_PATTERNS:
+        match = pattern.search(output)
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def parse_strict_validation_output(output: str, plan_path: str | Path | None = None) -> dict[str, Any]:
+    parsable = not bool(
+        re.search(r"Bad plan description|parse error|failed to parse", output, re.IGNORECASE)
+    )
+    executability = "Plan executed successfully - checking goal" in output or "Plan valid" in output
+    reachability = "Plan valid" in output
+
+    non_executable_failure = None
+    if not parsable:
+        non_executable_failure = "parse_error"
+    elif not executability:
+        non_executable_failure = "state_execution_error"
+
+    return {
+        "parsable": parsable,
+        "plan_length": extract_plan_length(output, plan_path=plan_path),
+        "executability": executability,
+        "reachability": reachability,
+        "first_failure_step": extract_first_failure_step(output) if non_executable_failure == "state_execution_error" else None,
+        "non_executable_failure": non_executable_failure,
+        "strict_final_value": extract_numeric_value(output) if reachability else None,
+        "validator_stdout_strict": output,
+    }
+
+
+def parse_legacy_validation_output(output: str) -> dict[str, Any]:
+    return {
+        "cost": extract_numeric_value(output),
+        "goal_reached": "Plan valid" in output,
+        "validator_stdout_legacy": output,
+    }
+
+
+def strict_validation(domain_path: str | Path, problem_path: str | Path, plan_path: str | Path) -> dict[str, Any]:
+    _, output = _run_validator("-v", domain_path, problem_path, plan_path)
+    return parse_strict_validation_output(output, plan_path=plan_path)
+
+
+def legacy_validation(domain_path: str | Path, problem_path: str | Path, plan_path: str | Path) -> dict[str, Any]:
+    _, output = _run_validator("-c", domain_path, problem_path, plan_path)
+    return parse_legacy_validation_output(output)
+
+
+def _sequence_lcs_length(left: list[str], right: list[str]) -> int:
+    if not left or not right:
+        return 0
+
+    # The plans are short enough that a simple DP keeps the metric easy to reason about.
+    previous = [0] * (len(right) + 1)
+    for left_item in left:
+        current = [0]
+        for index, right_item in enumerate(right, start=1):
+            if left_item == right_item:
+                current.append(previous[index - 1] + 1)
+            else:
+                current.append(max(current[-1], previous[index]))
+        previous = current
+    return previous[-1]
+
+
+def _legacy_action_name_distance(llm_plan_path: str | Path, optimal_plan_path: str | Path) -> dict[str, Any]:
+    llm_seq = [action.split()[0].lstrip("(") for action in read_plan_actions(llm_plan_path)]
+    opt_seq = [action.split()[0].lstrip("(") for action in read_plan_actions(optimal_plan_path)]
+
+    common = [action for action in opt_seq if action in llm_seq]
+
+    def kendall_tau(order1: list[str], order2: list[str]) -> int:
+        pos = {action: idx for idx, action in enumerate(order2)}
         inversions = 0
-        for i in range(len(order1)):
-            for j in range(i + 1, len(order1)):
-                if pos.get(order1[i], -1) > pos.get(order1[j], -1):
+        for idx in range(len(order1)):
+            for jdx in range(idx + 1, len(order1)):
+                if pos.get(order1[idx], -1) > pos.get(order1[jdx], -1):
                     inversions += 1
         return inversions
 
-    if len(common) >= 2:
-        tau = kendall_tau([a for a in llm_seq if a in common], common)
-    else:
-        tau = 0
-
-    # Штрафы за insertions и deletions
-    insertions = len(llm_seq) - len(common)   # лишние действия
-    deletions = len(opt_seq) - len(common)    # пропущенные действия
-
+    tau = kendall_tau([action for action in llm_seq if action in common], common) if len(common) >= 2 else 0
+    insertions = len(llm_seq) - len(common)
+    deletions = len(opt_seq) - len(common)
     total_distance = tau + insertions + deletions
-
-    # Нормализация (примерно от 0 до 1)
-    max_possible = len(opt_seq) * (len(opt_seq) - 1) // 2 + len(opt_seq)  # худший случай
-    normalized = total_distance / max_possible if max_possible > 0 else 0
+    max_possible = len(opt_seq) * (len(opt_seq) - 1) // 2 + len(opt_seq)
 
     return {
-        'kendall_tau_inversions': tau,
-        'insertions': insertions,
-        'deletions': deletions,
-        'total_distance': total_distance,
-        'normalized_distance': round(normalized, 4),
-        'llm_actions_count': len(llm_seq),
-        'optimal_actions_count': len(opt_seq)
+        "kendall_tau_inversions": tau,
+        "insertions": insertions,
+        "deletions": deletions,
+        "total_distance": total_distance,
+        "normalized_distance": round(total_distance / max_possible, 4) if max_possible else 0.0,
     }
 
 
-def build_metrics(domain_path, problem_path, plan_path, optimal_plan_path=None):
-    # 1. Валидация + РЕАЛЬНАЯ стоимость LLM-плана
-    is_valid, val_output = validate_plan(domain_path, problem_path, plan_path)
-    llm_cost = extract_plan_cost_from_validate(val_output)
+def action_sequence_distance(llm_plan_path: str | Path, optimal_plan_path: str | Path) -> dict[str, Any]:
+    llm_seq = read_plan_actions(llm_plan_path)
+    opt_seq = read_plan_actions(optimal_plan_path)
 
-    llm_actions_len = len(get_actions_sequence(plan_path))
+    lcs_length = _sequence_lcs_length(llm_seq, opt_seq)
+    insertions = len(llm_seq) - lcs_length
+    deletions = len(opt_seq) - lcs_length
+    total_distance = insertions + deletions
+    denominator = max(len(llm_seq) + len(opt_seq), 1)
 
-    # ← НОВОЕ: явный fallback ТОЛЬКО для invalid планов
-    if llm_cost is None:
-        llm_cost = llm_actions_len if not is_valid else None  # если valid, но cost не спарсился — оставляем None
+    return {
+        "matching_actions": lcs_length,
+        "insertions": insertions,
+        "deletions": deletions,
+        "total_distance": total_distance,
+        "normalized_distance": round(total_distance / denominator, 4),
+        "llm_actions_count": len(llm_seq),
+        "optimal_actions_count": len(opt_seq),
+        "deprecated_action_name_distance": _legacy_action_name_distance(llm_plan_path, optimal_plan_path),
+    }
 
-    # 2. РЕАЛЬНАЯ оптимальная стоимость (без изменений)
+
+@lru_cache(maxsize=None)
+def load_reference_plan_stats(
+    domain_path: str,
+    problem_path: str,
+    optimal_plan_path: str,
+) -> dict[str, Any]:
+    optimal_path = Path(optimal_plan_path)
+    optimal_cost = extract_numeric_value(_read_text(optimal_path))
+
+    if optimal_cost is None:
+        optimal_cost = legacy_validation(domain_path, problem_path, optimal_path)["cost"]
+
+    return {
+        "optimal_cost": optimal_cost,
+        "optimal_plan_length": len(read_plan_actions(optimal_path)),
+    }
+
+
+def build_metrics(
+    domain_path: str | Path,
+    problem_path: str | Path,
+    plan_path: str | Path,
+    optimal_plan_path: str | Path | None = None,
+) -> dict[str, Any]:
+    strict = strict_validation(domain_path, problem_path, plan_path)
+    legacy_raw = legacy_validation(domain_path, problem_path, plan_path)
+
     optimal_cost = None
-    optimal_actions_len = None
-    if optimal_plan_path and optimal_plan_path.exists():
-        with open(optimal_plan_path, encoding='utf-8') as f:
-            content = f.read()
-        
-        # Пробуем разные варианты комментариев
-        match = re.search(r'Plan cost:\s*(\d+\.?\d*)', content)
-        if not match:
-            match = re.search(r'Optimal cost:\s*(\d+\.?\d*)', content, re.IGNORECASE)
-        
-        if match:
-            optimal_cost = float(match.group(1))
-        else:
-            optimal_cost = len(get_actions_sequence(optimal_plan_path))
-        
-        optimal_actions_len = len(get_actions_sequence(optimal_plan_path))
-
-# 3. SUPER-OPTIMAL DETECTION ← НОВОЕ
-    bug_optimal = False
-    notes = None
-    if (is_valid and 
-        llm_cost is not None and 
-        optimal_cost is not None and 
-        optimal_cost > 0 and 
-        llm_cost < optimal_cost - 1e-6):  # небольшой epsilon на float
-        bug_optimal = True
-        notes = f"LLM нашёл план дешевле IPC-optimal ({llm_cost} < {optimal_cost}) — возможный loophole в домене"
-
-    # 4. GAP (теперь может быть отрицательным!)
-    gap = None
-    if llm_cost is not None and optimal_cost is not None and optimal_cost != 0:
-        gap = (llm_cost - optimal_cost) / optimal_cost
-
-    # 5. Метрика порядка (без изменений)
+    optimal_plan_length = None
     order_metric = None
-    if optimal_plan_path and optimal_plan_path.exists():
-        order_metric = action_order_distance(plan_path, optimal_plan_path)
 
-    return {
-        'VAL': (is_valid, val_output),
-        'LLM_COST': {
-            'cost': llm_cost,
-            'num_actions': llm_actions_len,
-            'is_bug_optimal': bug_optimal,
-            'notes': notes
-        },
-        'OPTIMAL_COST': optimal_cost,
-        'OPTIMAL_ACTIONS_LEN': optimal_actions_len,
-        'GAP': gap,
-        'ORDER_METRIC': order_metric,
-        'BUG_OPTIMAL': bug_optimal
+    if optimal_plan_path and Path(optimal_plan_path).exists():
+        reference = load_reference_plan_stats(
+            str(Path(domain_path)),
+            str(Path(problem_path)),
+            str(Path(optimal_plan_path)),
+        )
+        optimal_cost = reference["optimal_cost"]
+        optimal_plan_length = reference["optimal_plan_length"]
+        order_metric = action_sequence_distance(plan_path, optimal_plan_path)
+
+    legacy_cost = legacy_raw["cost"]
+    reachability = strict["reachability"]
+
+    gap = None
+    optimality_ratio = None
+    if reachability and legacy_cost is not None and optimal_cost not in (None, 0):
+        gap = (legacy_cost - optimal_cost) / optimal_cost
+        optimality_ratio = legacy_cost / optimal_cost
+
+    bug_optimal = bool(
+        reachability
+        and legacy_cost is not None
+        and optimal_cost is not None
+        and legacy_cost < optimal_cost - 1e-6
+    )
+
+    legacy = {
+        "cost": legacy_cost if reachability else None,
+        "gap": gap,
+        "bug_optimal": bug_optimal,
+        "optimality_ratio": optimality_ratio,
+        "validator_stdout_legacy": legacy_raw["validator_stdout_legacy"],
     }
 
-# Вспомогательная (оставил для совместимости)
-def get_plan_cost(plan_path):
-    return len(get_actions_sequence(plan_path))
+    return {
+        "strict": strict,
+        "legacy": legacy,
+        "order": order_metric,
+        "reference": {
+            "optimal_cost": optimal_cost,
+            "optimal_plan_length": optimal_plan_length,
+        },
+    }

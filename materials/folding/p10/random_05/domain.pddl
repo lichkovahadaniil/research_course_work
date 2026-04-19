@@ -69,29 +69,6 @@
 ;; Rotates the string after this node and start the first pass computing
 ;; absolute directions and coordinates of other nodes
 
-(:action rotate-first-pass
-    :parameters (?nstart - node ?r - rotation
-                 ?n1 - node
-                 ?n2 - node ?n2x ?n2y - coord ?n2dir ?n2setdir - direction)
-    :precondition
-        (and
-            (CONNECTED ?n1 ?n2)
-            (NEXT-DIRECTION ?n2dir ?r ?n2setdir)
-            (node-first-pass-next ?nstart ?r ?n1)
-            (at ?n2 ?n2x ?n2y)
-            (heading ?n2 ?n2dir)
-        )
-    :effect
-        (and
-            (not (node-first-pass-next ?nstart ?r ?n1))
-            (node-first-pass-next ?nstart ?r ?n2)
-            (not (at ?n2 ?n2x ?n2y))
-            (free ?n2x ?n2y)
-            (not (heading ?n2 ?n2dir))
-            (heading ?n2 ?n2setdir)
-            (increase (total-cost) (update-cost))
-        )
-)
 (:action rotate-second-pass
     :parameters (?n1 - node ?n1x ?n1y - coord ?n1dir - direction
                  ?n2 - node ?n2x ?n2y - coord)
@@ -134,21 +111,27 @@
             (increase (total-cost) (update-cost))
         )
 )
-(:action rotate
-    :parameters (?n - node ?r - rotation ?fromdir ?todir - direction)
+(:action rotate-first-pass
+    :parameters (?nstart - node ?r - rotation
+                 ?n1 - node
+                 ?n2 - node ?n2x ?n2y - coord ?n2dir ?n2setdir - direction)
     :precondition
         (and
-            (not (rotating))
-            (NEXT-DIRECTION ?fromdir ?r ?todir)
-            (heading ?n ?fromdir)
+            (CONNECTED ?n1 ?n2)
+            (NEXT-DIRECTION ?n2dir ?r ?n2setdir)
+            (node-first-pass-next ?nstart ?r ?n1)
+            (at ?n2 ?n2x ?n2y)
+            (heading ?n2 ?n2dir)
         )
     :effect
         (and
-            (not (heading ?n ?fromdir))
-            (heading ?n ?todir)
-            (rotating)
-            (node-first-pass-next ?n ?r ?n)
-            (increase (total-cost) (rotate-cost))
+            (not (node-first-pass-next ?nstart ?r ?n1))
+            (node-first-pass-next ?nstart ?r ?n2)
+            (not (at ?n2 ?n2x ?n2y))
+            (free ?n2x ?n2y)
+            (not (heading ?n2 ?n2dir))
+            (heading ?n2 ?n2setdir)
+            (increase (total-cost) (update-cost))
         )
 )
 
@@ -164,6 +147,23 @@
             (not (node-second-pass-next ?n))
             (not (rotating))
             (increase (total-cost) (update-cost))
+        )
+)
+(:action rotate
+    :parameters (?n - node ?r - rotation ?fromdir ?todir - direction)
+    :precondition
+        (and
+            (not (rotating))
+            (NEXT-DIRECTION ?fromdir ?r ?todir)
+            (heading ?n ?fromdir)
+        )
+    :effect
+        (and
+            (not (heading ?n ?fromdir))
+            (heading ?n ?todir)
+            (rotating)
+            (node-first-pass-next ?n ?r ?n)
+            (increase (total-cost) (rotate-cost))
         )
 )
 
