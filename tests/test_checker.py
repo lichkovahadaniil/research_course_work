@@ -66,10 +66,10 @@ def test_order_metrics_are_non_negative_and_normalized(tmp_path: Path) -> None:
 
 def test_invalid_plan_gap_is_null_on_real_artifact() -> None:
     metrics = build_metrics(
-        "materials/folding/p10/random_01/domain.pddl",
-        "materials/folding/p10/p10.pddl",
-        "materials/folding/p10/random_01/gpt-5-mini/llm.plan",
-        "materials/folding/p10/p10.plan",
+        "materials/folding/p01/canonical/domain.pddl",
+        "materials/folding/p01/p01.pddl",
+        "materials/folding/p01/canonical/qwen3-5-35b-a3b-alibaba/llm.plan",
+        "materials/folding/p01/p01.plan",
     )
 
     assert metrics["strict"]["reachability"] is False
@@ -80,18 +80,18 @@ def test_invalid_plan_gap_is_null_on_real_artifact() -> None:
 @pytest.mark.skipif(shutil.which("validate") is None, reason="VAL is not installed")
 def test_strict_validation_extracts_first_failure_step_from_real_artifact() -> None:
     metrics = strict_validation(
-        "materials/folding/p10/random_01/domain.pddl",
-        "materials/folding/p10/p10.pddl",
-        "materials/folding/p10/random_01/gpt-5-mini/llm.plan",
+        "materials/folding/p01/canonical/domain.pddl",
+        "materials/folding/p01/p01.pddl",
+        "materials/folding/p01/canonical/qwen3-5-35b-a3b-alibaba/llm.plan",
     )
-    assert metrics["first_failure_step"] == 2
+    assert metrics["first_failure_step"] == 8
 
 
 @pytest.mark.skipif(shutil.which("validate") is None, reason="VAL is not installed")
 def test_strict_validation_extracts_final_value_from_real_artifact() -> None:
     metrics = strict_validation(
-        "materials/folding/p01/frequency/domain.pddl",
+        "materials/folding/p01/canonical/domain.pddl",
         "materials/folding/p01/p01.pddl",
-        "materials/folding/p01/frequency/gpt-5-mini/llm.plan",
+        "materials/folding/p01/canonical/gpt-5-mini/llm.plan",
     )
     assert metrics["strict_final_value"] == 7.0

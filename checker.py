@@ -1,11 +1,17 @@
+import os
 import re
+import signal
 import subprocess
+import tempfile
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 
+VALIDATE_TIMEOUT_SEC = 120
 PLAN_COST_PATTERNS = (
+    r"Optimal cost:\s*([0-9]+(?:\.[0-9]+)?)",
     r"Plan cost:\s*([0-9]+(?:\.[0-9]+)?)",
     r"Final value:\s*([0-9]+(?:\.[0-9]+)?)",
     r"Value:\s*([0-9]+(?:\.[0-9]+)?)",
@@ -43,14 +49,48 @@ def get_plan_cost(plan_path: str | Path) -> int:
     return len(read_plan_actions(plan_path))
 
 
-def _run_validator(flag: str, domain_path: str | Path, problem_path: str | Path, plan_path: str | Path) -> tuple[int, str]:
-    result = subprocess.run(
-        ["validate", flag, str(domain_path), str(problem_path), str(plan_path)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return result.returncode, result.stdout + result.stderr
+def _run_validator(flag: str, domain_path: str | Path, problem_path: str | Path, plan_path: str | Path) -> tuple[int | None, str, bool]:
+    with tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8") as output_handle:
+        process = subprocess.Popen(
+            ["validate", flag, str(domain_path), str(problem_path), str(plan_path)],
+            stdout=output_handle,
+            stderr=subprocess.STDOUT,
+            text=True,
+            start_new_session=True,
+        )
+
+        deadline = time.monotonic() + VALIDATE_TIMEOUT_SEC
+        timed_out = False
+
+        while True:
+            return_code = process.poll()
+            if return_code is not None:
+                break
+
+            if time.monotonic() >= deadline:
+                timed_out = True
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.kill()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+                break
+
+            time.sleep(0.25)
+
+        output_handle.flush()
+        output_handle.seek(0)
+        output = output_handle.read()
+
+    if timed_out:
+        output = f"{output}\nValidator timed out after {VALIDATE_TIMEOUT_SEC} seconds.\n"
+        return None, output, True
+
+    return process.returncode, output, False
 
 
 def extract_plan_length(output: str, plan_path: str | Path | None = None) -> int | None:
@@ -70,7 +110,7 @@ def extract_first_failure_step(output: str) -> int | None:
     return None
 
 
-def parse_strict_validation_output(output: str, plan_path: str | Path | None = None) -> dict[str, Any]:
+def parse_strict_validation_output(output: str, plan_path: str | Path | None = None, timed_out: bool = False) -> dict[str, Any]:
     parsable = not bool(
         re.search(r"Bad plan description|parse error|failed to parse", output, re.IGNORECASE)
     )
@@ -78,7 +118,9 @@ def parse_strict_validation_output(output: str, plan_path: str | Path | None = N
     reachability = "Plan valid" in output
 
     non_executable_failure = None
-    if not parsable:
+    if timed_out:
+        non_executable_failure = "validator_timeout"
+    elif not parsable:
         non_executable_failure = "parse_error"
     elif not executability:
         non_executable_failure = "state_execution_error"
@@ -91,6 +133,7 @@ def parse_strict_validation_output(output: str, plan_path: str | Path | None = N
         "first_failure_step": extract_first_failure_step(output) if non_executable_failure == "state_execution_error" else None,
         "non_executable_failure": non_executable_failure,
         "strict_final_value": extract_numeric_value(output) if reachability else None,
+        "validator_timed_out": timed_out,
         "validator_stdout_strict": output,
     }
 
@@ -104,13 +147,15 @@ def parse_legacy_validation_output(output: str) -> dict[str, Any]:
 
 
 def strict_validation(domain_path: str | Path, problem_path: str | Path, plan_path: str | Path) -> dict[str, Any]:
-    _, output = _run_validator("-v", domain_path, problem_path, plan_path)
-    return parse_strict_validation_output(output, plan_path=plan_path)
+    _, output, timed_out = _run_validator("-v", domain_path, problem_path, plan_path)
+    return parse_strict_validation_output(output, plan_path=plan_path, timed_out=timed_out)
 
 
 def legacy_validation(domain_path: str | Path, problem_path: str | Path, plan_path: str | Path) -> dict[str, Any]:
-    _, output = _run_validator("-c", domain_path, problem_path, plan_path)
-    return parse_legacy_validation_output(output)
+    _, output, timed_out = _run_validator("-c", domain_path, problem_path, plan_path)
+    parsed = parse_legacy_validation_output(output)
+    parsed["validator_timed_out"] = timed_out
+    return parsed
 
 
 def _sequence_lcs_length(left: list[str], right: list[str]) -> int:
@@ -207,7 +252,16 @@ def build_metrics(
     optimal_plan_path: str | Path | None = None,
 ) -> dict[str, Any]:
     strict = strict_validation(domain_path, problem_path, plan_path)
-    legacy_raw = legacy_validation(domain_path, problem_path, plan_path)
+    if strict["reachability"]:
+        legacy_raw = legacy_validation(domain_path, problem_path, plan_path)
+    else:
+        legacy_raw = {
+            "cost": None,
+            "goal_reached": False,
+            "validator_stdout_legacy": None,
+            "validator_timed_out": False,
+            "skipped_because_strict_not_reached": True,
+        }
 
     optimal_cost = None
     optimal_plan_length = None
@@ -245,6 +299,8 @@ def build_metrics(
         "bug_optimal": bug_optimal,
         "optimality_ratio": optimality_ratio,
         "validator_stdout_legacy": legacy_raw["validator_stdout_legacy"],
+        "validator_timed_out": legacy_raw.get("validator_timed_out", False),
+        "skipped_because_strict_not_reached": legacy_raw.get("skipped_because_strict_not_reached", False),
     }
 
     return {

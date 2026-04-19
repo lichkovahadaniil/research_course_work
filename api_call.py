@@ -1,4 +1,10 @@
-from openai import OpenAI
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    OpenAI,
+    RateLimitError,
+)
 import os
 import time
 import json
@@ -109,7 +115,13 @@ def supports_reasoning(model: str) -> bool:
 @retry(
     stop=stop_after_attempt(5),
     wait=wait_exponential(multiplier=2, min=8, max=45),
-    retry=retry_if_exception_type((json.JSONDecodeError, Exception)),
+    retry=retry_if_exception_type((
+        json.JSONDecodeError,
+        APIConnectionError,
+        APITimeoutError,
+        InternalServerError,
+        RateLimitError,
+    )),
     reraise=True
 )
 def call_openrouter(domain, problem, model: str = "openai/gpt-5-mini", reasoning_enabled: bool = False):

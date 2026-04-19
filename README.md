@@ -71,13 +71,28 @@ python3 manual_model_run.py \
 
 This revalidates the plans already stored in `materials/` and rewrites local `llm_result.json`, `llm_summary.json`, and `materials/metric.json`. No model calls are made here.
 
+If a plan exists but `llm_result.json` is missing or incomplete, `aggregate` rebuilds it from the plan only. Runtime-only fields such as token counts and duration are backfilled from the mean of the same model over the other variants of the same `domain/problem` when such peers exist.
+
 ```bash
 python3 main.py aggregate --domains folding
 ```
 
+### 4b. Only repair missing or incomplete result JSON files
+
+This is the fast recovery path when the plans already exist and you only want to fill in missing or partial `llm_result.json` files, then refresh summaries.
+
+```bash
+python3 main.py repair-results --domains folding --problems p01,p05,p10,p15,p20
+```
+
 ### 5. Build reports and plots
 
-This reads the aggregated metrics and writes plots plus `report.md` per domain.
+This reads the aggregated metrics and writes:
+
+- per-problem heatmaps for the 7 core metrics
+- per-domain summary heatmaps and summary barplots aggregated over the selected problems
+- cross-domain heatmaps and barplots aggregated over the same selected problems
+- `report.md` per domain
 
 ```bash
 python3 main.py report --domains folding
@@ -95,6 +110,15 @@ python3 main.py report --domains folding
   - `order_summary`
 - `materials/metric.json`
   - domain-wide collected summaries used by reporting
+  - `_meta.domains.<domain>.selected_problems` records which problems were included in the latest aggregate for that domain
+
+## Summary scoping rule
+
+Summary plots are always computed from the problems that actually participate in `aggregate` or `report`.
+
+- If you pass `--problems p01,p05,p10,p15,p20`, summaries use exactly those problems.
+- If you later run a different set, summaries follow that set automatically.
+- If `report` is run without `--problems`, it falls back to the last aggregated problem set stored in `materials/metric.json`.
 
 ## Shuffle metadata
 

@@ -1,5 +1,6 @@
 from pathlib import Path
 import shutil
+from result_backfill import load_json_dict, result_payload_is_complete
 
 
 def find_incomplete(domain: str = "folding"):
@@ -21,7 +22,9 @@ def find_incomplete(domain: str = "folding"):
                 if not model_dir.is_dir():
                     continue
                 total_models += 1
-                if (model_dir / "llm.plan").exists() and (model_dir / "llm_result.json").exists():
+                plan_exists = (model_dir / "llm.plan").exists()
+                result_payload = load_json_dict(model_dir / "llm_result.json")
+                if plan_exists and result_payload_is_complete(result_payload):
                     models_ready += 1
                 else:
                     incomplete.append(f"{prob_name}/{variant_name}/{model_dir.name}")

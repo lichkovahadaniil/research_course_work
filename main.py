@@ -1,11 +1,14 @@
 import argparse
 import json
 import shlex
+from datetime import datetime
 from pathlib import Path
+import time
 from typing import Any
 
 from checker import build_metrics
 from domain_generation import DOMAIN_TYPES, generate_paths, process_domains
+from result_backfill import fill_missing_runtime_fields, load_json_dict, result_payload_is_complete
 
 
 DEFAULT_PROBLEM_PROFILE = ["p01", "p05", "p10", "p15", "p20"]
@@ -139,7 +142,7 @@ def build_variant_summary(variant_dir: Path) -> dict[str, Any]:
     return summary
 
 
-def build_global_metrics(domains: list[str]) -> dict[str, Any]:
+def build_global_metrics(domains: list[str], problem_ids: list[str] | None = None) -> dict[str, Any]:
     metric_path = Path("materials/metric.json")
     global_metric: dict[str, Any] = {}
 
@@ -149,10 +152,16 @@ def build_global_metrics(domains: list[str]) -> dict[str, Any]:
         except json.JSONDecodeError:
             global_metric = {}
 
+    meta = global_metric.get("_meta", {}) if isinstance(global_metric.get("_meta"), dict) else {}
+    domain_meta = meta.get("domains", {}) if isinstance(meta.get("domains"), dict) else {}
+    selected_problem_ids = set(problem_ids) if problem_ids is not None else None
+
     for domain_name in domains:
         domain_metric: dict[str, Any] = {}
         domain_path = Path("materials") / domain_name
         for problem_dir in sorted(child for child in domain_path.glob("p*") if child.is_dir()):
+            if selected_problem_ids is not None and problem_dir.name not in selected_problem_ids:
+                continue
             problem_metric: dict[str, Any] = {}
             for variant_dir in iter_variant_dirs(problem_dir):
                 summary_path = variant_dir / "llm_summary.json"
@@ -161,9 +170,60 @@ def build_global_metrics(domains: list[str]) -> dict[str, Any]:
             if problem_metric:
                 domain_metric[problem_dir.name] = problem_metric
         global_metric[domain_name] = domain_metric
+        domain_meta[domain_name] = {
+            "selected_problems": sorted(domain_metric),
+            "updated_at": datetime.now().isoformat(),
+        }
+
+    global_metric["_meta"] = {
+        "domains": domain_meta,
+        "updated_at": datetime.now().isoformat(),
+    }
 
     save_json(metric_path, global_metric)
     return global_metric
+
+
+def safe_build_metrics(
+    domain_file: Path,
+    problem_file: Path,
+    plan_path: Path,
+    optimal_plan_path: Path,
+) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
+    try:
+        return build_metrics(domain_file, problem_file, plan_path, optimal_plan_path), None
+    except Exception as exc:
+        return None, {
+            "type": type(exc).__name__,
+            "message": str(exc),
+        }
+
+
+def build_local_result_entry(
+    *,
+    model_dir: Path,
+    variant_dir: Path,
+    plan_path: Path,
+    domain_file: Path,
+    problem_file: Path,
+    optimal_plan_path: Path,
+    existing_payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    metrics, postprocess_error = safe_build_metrics(domain_file, problem_file, plan_path, optimal_plan_path)
+    updated_entry = {
+        **(existing_payload or {}),
+        "model": (existing_payload or {}).get("model") or model_dir.name,
+        "plan_file": str(plan_path),
+        "metrics": metrics,
+    }
+    if postprocess_error is not None:
+        updated_entry["postprocess_error"] = postprocess_error
+    updated_entry = fill_missing_runtime_fields(
+        updated_entry,
+        variant_dir=variant_dir,
+        model_dir_name=model_dir.name,
+    )
+    return updated_entry
 
 
 def aggregate_domains(domains: list[str], problem_ids: list[str], variants: list[str] | None = None) -> None:
@@ -175,35 +235,87 @@ def aggregate_domains(domains: list[str], problem_ids: list[str], variants: list
             for variant_dir in iter_variant_dirs(problem_dir, variants=variants):
                 domain_file = variant_dir / "domain.pddl"
                 updated_models = 0
+                model_dirs = sorted(child for child in variant_dir.iterdir() if child.is_dir())
+                print(f"start aggregate {domain_name}/{problem_dir.name}/{variant_dir.name}: {len(model_dirs)} model(s)")
 
-                for model_dir in sorted(child for child in variant_dir.iterdir() if child.is_dir()):
+                for index, model_dir in enumerate(model_dirs, start=1):
                     plan_path = model_dir / "llm.plan"
                     if not plan_path.exists():
+                        print(f"  [{index}/{len(model_dirs)}] skip {model_dir.name}: no llm.plan")
                         continue
 
                     result_path = model_dir / "llm_result.json"
-                    existing: dict[str, Any] = {}
-                    if result_path.exists():
-                        try:
-                            existing = load_json(result_path)
-                        except json.JSONDecodeError:
-                            existing = {}
-
-                    metrics = build_metrics(domain_file, problem_file, plan_path, optimal_plan_path)
-                    updated_entry = {
-                        **existing,
-                        "model": existing.get("model") or model_dir.name,
-                        "plan_file": str(plan_path),
-                        "metrics": metrics,
-                    }
+                    existing = load_json_dict(result_path)
+                    print(f"  [{index}/{len(model_dirs)}] recompute {model_dir.name}")
+                    started_at = time.time()
+                    updated_entry = build_local_result_entry(
+                        model_dir=model_dir,
+                        variant_dir=variant_dir,
+                        plan_path=plan_path,
+                        domain_file=domain_file,
+                        problem_file=problem_file,
+                        optimal_plan_path=optimal_plan_path,
+                        existing_payload=existing,
+                    )
                     save_json(result_path, updated_entry)
                     updated_models += 1
+                    print(f"  [{index}/{len(model_dirs)}] done {model_dir.name} in {time.time() - started_at:.1f}s")
 
                 build_variant_summary(variant_dir)
                 print(f"aggregated {domain_name}/{problem_dir.name}/{variant_dir.name}: {updated_models} model(s)")
 
-    build_global_metrics(domains)
+    build_global_metrics(domains, problem_ids=problem_ids)
     print("aggregate finished")
+
+
+def repair_results(domains: list[str], problem_ids: list[str], variants: list[str] | None = None) -> None:
+    repaired_models = 0
+
+    for domain_name in domains:
+        for problem_dir in iter_problem_dirs(domain_name, problem_ids):
+            problem_file = problem_dir / f"{problem_dir.name}.pddl"
+            optimal_plan_path = problem_dir / f"{problem_dir.name}.plan"
+
+            for variant_dir in iter_variant_dirs(problem_dir, variants=variants):
+                domain_file = variant_dir / "domain.pddl"
+                model_dirs = sorted(child for child in variant_dir.iterdir() if child.is_dir())
+                touched_variant = False
+                print(f"start repair {domain_name}/{problem_dir.name}/{variant_dir.name}: {len(model_dirs)} model(s)")
+
+                for index, model_dir in enumerate(model_dirs, start=1):
+                    plan_path = model_dir / "llm.plan"
+                    if not plan_path.exists():
+                        print(f"  [{index}/{len(model_dirs)}] skip {model_dir.name}: no llm.plan")
+                        continue
+
+                    result_path = model_dir / "llm_result.json"
+                    existing = load_json_dict(result_path)
+                    if result_payload_is_complete(existing):
+                        print(f"  [{index}/{len(model_dirs)}] skip {model_dir.name}: result complete")
+                        continue
+
+                    print(f"  [{index}/{len(model_dirs)}] repair {model_dir.name}")
+                    started_at = time.time()
+                    updated_entry = build_local_result_entry(
+                        model_dir=model_dir,
+                        variant_dir=variant_dir,
+                        plan_path=plan_path,
+                        domain_file=domain_file,
+                        problem_file=problem_file,
+                        optimal_plan_path=optimal_plan_path,
+                        existing_payload=existing,
+                    )
+                    save_json(result_path, updated_entry)
+                    repaired_models += 1
+                    touched_variant = True
+                    print(f"  [{index}/{len(model_dirs)}] done {model_dir.name} in {time.time() - started_at:.1f}s")
+
+                if touched_variant:
+                    build_variant_summary(variant_dir)
+                    print(f"repaired {domain_name}/{problem_dir.name}/{variant_dir.name}")
+
+    build_global_metrics(domains, problem_ids=problem_ids)
+    print(f"repair finished: {repaired_models} model result(s) updated")
 
 
 def collect_manual_run_commands(
@@ -259,10 +371,10 @@ def prepare_domains(domains: list[str], problem_ids: list[str], force: bool, shu
     )
 
 
-def report_domains(domains: list[str]) -> None:
+def report_domains(domains: list[str], problem_ids: list[str] | None = None) -> None:
     from plot_folding_metrics import build_reports_for_domains
 
-    build_reports_for_domains(domains)
+    build_reports_for_domains(domains, problem_ids=problem_ids)
     print("report finished")
 
 
@@ -289,8 +401,14 @@ def build_parser() -> argparse.ArgumentParser:
     aggregate_parser.add_argument("--problems", type=str, default=",".join(DEFAULT_PROBLEM_PROFILE))
     aggregate_parser.add_argument("--variants", type=str, default="all")
 
+    repair_parser = subparsers.add_parser("repair-results", help="Only rebuild missing or incomplete llm_result.json files from existing plans.")
+    repair_parser.add_argument("--domains", type=str, default=",".join(DOMAIN_TYPES))
+    repair_parser.add_argument("--problems", type=str, default=",".join(DEFAULT_PROBLEM_PROFILE))
+    repair_parser.add_argument("--variants", type=str, default="all")
+
     report_parser = subparsers.add_parser("report", help="Build plots and report artifacts from aggregated metrics.")
     report_parser.add_argument("--domains", type=str, default=",".join(DOMAIN_TYPES))
+    report_parser.add_argument("--problems", type=str, default=None)
 
     return parser
 
@@ -319,8 +437,15 @@ def main() -> None:
         aggregate_domains(domains, problem_ids, variants=variants)
         return
 
+    if args.command == "repair-results":
+        problem_ids = parse_problem_argument(args.problems, DEFAULT_PROBLEM_PROFILE)
+        variants = parse_csv_argument(args.variants, ["all"])
+        repair_results(domains, problem_ids, variants=variants)
+        return
+
     if args.command == "report":
-        report_domains(domains)
+        problem_ids = None if args.problems is None else parse_problem_argument(args.problems, DEFAULT_PROBLEM_PROFILE)
+        report_domains(domains, problem_ids=problem_ids)
         return
 
 
