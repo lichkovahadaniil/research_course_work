@@ -20,8 +20,8 @@ import matplotlib.pyplot as plt
 
 MODEL_NAMES = [
     "gpt-5-mini",
-    "grok-4.1-fast",
-    "qwen/qwen3.5-35b-a3b:alibaba",
+    "grok-4-1-fast",
+    "qwen3-5-35b-a3b-alibaba",
 ]
 RECORD_COLUMNS = [
     "domain",
