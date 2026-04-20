@@ -8,13 +8,6 @@ from typing import Any
 import fcntl
 
 from checker import build_metrics
-from result_backfill import fill_missing_runtime_fields, load_json_dict, result_payload_is_complete
-
-
-MODEL_PROVIDER_MAP = {
-    "xiaomi/mimo-v2-flash": "xiaomi/mimo-v2-flash:fp8",
-    "qwen/qwen3.5-35b-a3b:alibaba": "qwen/qwen3.5-35b-a3b:alibaba",
-}
 
 
 def model_output_dir_name(model_name: str) -> str:
@@ -23,57 +16,99 @@ def model_output_dir_name(model_name: str) -> str:
 
 def atomic_write_text(path: Path, content: str) -> None:
     tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    with open(tmp_path, "w", encoding="utf-8") as handle:
-        handle.write(content)
+    tmp_path.write_text(content, encoding="utf-8")
     os.replace(tmp_path, path)
 
 
 def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    with open(tmp_path, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, ensure_ascii=False, indent=2)
+    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp_path, path)
 
 
 def update_status(status_path: Path, stage: str, **extra: Any) -> None:
-    payload = {
-        "stage": stage,
-        "timestamp": datetime.now().isoformat(),
-        **extra,
-    }
-    atomic_write_json(status_path, payload)
+    atomic_write_json(
+        status_path,
+        {
+            "stage": stage,
+            "timestamp": datetime.now().isoformat(),
+            **extra,
+        },
+    )
 
 
-def append_spending(res: dict, model: str, domain_file: Path, problem_file: Path) -> None:
+def append_spending(response: dict[str, Any], model: str, domain_path: Path, problem_path: Path) -> None:
     spendings_path = Path("spendings.json")
     lock_path = spendings_path.with_suffix(".lock")
     entry = {
         "timestamp": datetime.now().isoformat(),
         "model": model,
-        "domain": str(domain_file),
-        "problem": str(problem_file),
-        "prompt_tokens": res.get("prompt_tokens"),
-        "completion_tokens": res.get("completion_tokens"),
-        "total_tokens": res.get("total_tokens"),
-        "duration_sec": res.get("duration_sec"),
+        "domain": str(domain_path),
+        "problem": str(problem_path),
+        "prompt_tokens": response.get("prompt_tokens"),
+        "completion_tokens": response.get("completion_tokens"),
+        "total_tokens": response.get("total_tokens"),
+        "duration_sec": response.get("duration_sec"),
     }
 
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
     with open(lock_path, "w", encoding="utf-8") as lock_handle:
         fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
         try:
-            data = []
             if spendings_path.exists():
                 try:
-                    with open(spendings_path, "r", encoding="utf-8") as handle:
-                        data = json.load(handle)
+                    payload = json.loads(spendings_path.read_text(encoding="utf-8"))
                 except json.JSONDecodeError:
-                    data = []
+                    payload = []
+            else:
+                payload = []
 
-            data.append(entry)
-            atomic_write_json(spendings_path, data)
+            payload.append(entry)
+            atomic_write_json(spendings_path, payload)
         finally:
             fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+
+def load_json_dict(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def result_is_complete(payload: dict[str, Any] | None) -> bool:
+    if not payload:
+        return False
+    metrics = payload.get("metrics")
+    return isinstance(metrics, dict) and {"strict", "legacy", "reference"}.issubset(metrics)
+
+
+def build_result_payload(
+    *,
+    model: str,
+    plan_path: Path,
+    metrics: dict[str, Any] | None,
+    response: dict[str, Any] | None = None,
+    postprocess_error: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    payload = {
+        "model": model,
+        "plan_file": str(plan_path),
+        "metrics": metrics,
+    }
+    if response is not None:
+        payload.update(
+            {
+                key: value
+                for key, value in response.items()
+                if key not in {"model", "plan", "plan_file", "metrics", "postprocess_error"}
+            }
+        )
+    if postprocess_error is not None:
+        payload["postprocess_error"] = postprocess_error
+    return payload
 
 
 def safe_build_metrics(
@@ -91,30 +126,8 @@ def safe_build_metrics(
         }
 
 
-def build_result_payload(
-    model: str,
-    plan_path: Path,
-    metrics: dict[str, Any] | None,
-    response: dict[str, Any] | None = None,
-    postprocess_error: dict[str, str] | None = None,
-) -> dict[str, Any]:
-    base_payload = {
-        "model": model,
-        "plan_file": str(plan_path),
-        "metrics": metrics,
-    }
-    if response is not None:
-        base_payload.update({
-            key: value
-            for key, value in response.items()
-            if key not in {"plan", "model", "plan_file", "metrics", "postprocess_error"}
-        })
-    if postprocess_error is not None:
-        base_payload["postprocess_error"] = postprocess_error
-    return base_payload
-
-
 def rebuild_result_from_existing_plan(
+    *,
     model: str,
     plan_path: Path,
     result_path: Path,
@@ -122,40 +135,19 @@ def rebuild_result_from_existing_plan(
     domain_path: Path,
     problem_path: Path,
     optimal_plan_path: Path,
-    existing_payload: dict[str, Any] | None = None,
+    existing_payload: dict[str, Any] | None,
 ) -> None:
-    print(f"⚠️  {plan_path.parent.parent.name}/{plan_path.parent.name}: plan exists, rebuilding llm_result.json only")
     update_status(status_path, "rebuilding_from_existing_plan", plan_file=str(plan_path))
-    partial_payload = build_result_payload(
-        model=model,
-        plan_path=plan_path,
-        metrics=None,
-        response=existing_payload,
-    )
-    partial_payload = fill_missing_runtime_fields(
-        partial_payload,
-        variant_dir=plan_path.parent.parent,
-        model_dir_name=plan_path.parent.name,
-    )
-    atomic_write_json(result_path, partial_payload)
-    update_status(status_path, "metrics_started_for_existing_plan", result_file=str(result_path))
-
     metrics, postprocess_error = safe_build_metrics(domain_path, problem_path, plan_path, optimal_plan_path)
-    result_payload = build_result_payload(
+    payload = build_result_payload(
         model=model,
         plan_path=plan_path,
         metrics=metrics,
-        response=partial_payload,
+        response=existing_payload,
         postprocess_error=postprocess_error,
     )
-    result_payload = fill_missing_runtime_fields(
-        result_payload,
-        variant_dir=plan_path.parent.parent,
-        model_dir_name=plan_path.parent.name,
-    )
-    atomic_write_json(result_path, result_payload)
+    atomic_write_json(result_path, payload)
     update_status(status_path, "result_written_from_existing_plan", result_file=str(result_path))
-    print(f"wrote {result_path}")
 
 
 def run_model(
@@ -166,21 +158,18 @@ def run_model(
     model: str,
     force: bool,
 ) -> None:
-    short_name = model_output_dir_name(model)
-    model_dir = variant_dir / short_name
+    model_dir = variant_dir / model_output_dir_name(model)
     model_dir.mkdir(parents=True, exist_ok=True)
 
     plan_path = model_dir / "llm.plan"
     result_path = model_dir / "llm_result.json"
     status_path = model_dir / "run_status.json"
-
     existing_payload = load_json_dict(result_path)
-    if plan_path.exists() and not force:
-        if result_payload_is_complete(existing_payload):
-            update_status(status_path, "skipped_existing_result", result_file=str(result_path))
-            print(f"skip {variant_dir.name}/{short_name}: result already exists")
-            return
 
+    if plan_path.exists() and not force:
+        if result_is_complete(existing_payload):
+            update_status(status_path, "skipped_existing_result", result_file=str(result_path))
+            return
         rebuild_result_from_existing_plan(
             model=model,
             plan_path=plan_path,
@@ -193,48 +182,29 @@ def run_model(
         )
         return
 
-    provider_model = MODEL_PROVIDER_MAP.get(model, model)
-    update_status(status_path, "calling_model", requested_model=model, provider_model=provider_model)
     from api_call import call_openrouter
 
-    response = call_openrouter(domain_path, problem_path, model=provider_model, reasoning_enabled=True)
+    update_status(status_path, "calling_model", model=model)
+    response = call_openrouter(
+        domain_path=domain_path,
+        problem_path=problem_path,
+        model=model,
+        reasoning_enabled=True,
+    )
 
-    update_status(status_path, "model_response_received")
-    atomic_write_text(plan_path, response["plan"])
+    atomic_write_text(plan_path, str(response["plan"]))
     update_status(status_path, "plan_written", plan_file=str(plan_path))
 
-    partial_payload = build_result_payload(
-        model=model,
-        plan_path=plan_path,
-        metrics=None,
-        response=response,
-    )
-    partial_payload = fill_missing_runtime_fields(
-        partial_payload,
-        variant_dir=variant_dir,
-        model_dir_name=short_name,
-    )
-    atomic_write_json(result_path, partial_payload)
-    update_status(status_path, "partial_result_written", result_file=str(result_path))
-
     metrics, postprocess_error = safe_build_metrics(domain_path, problem_path, plan_path, optimal_plan_path)
-    update_status(status_path, "metrics_built" if postprocess_error is None else "metrics_failed", postprocess_error=postprocess_error)
-
-    result_payload = build_result_payload(
+    payload = build_result_payload(
         model=model,
         plan_path=plan_path,
         metrics=metrics,
-        response=partial_payload,
+        response=response,
         postprocess_error=postprocess_error,
     )
-    result_payload = fill_missing_runtime_fields(
-        result_payload,
-        variant_dir=variant_dir,
-        model_dir_name=short_name,
-    )
-    atomic_write_json(result_path, result_payload)
+    atomic_write_json(result_path, payload)
     update_status(status_path, "result_written", result_file=str(result_path))
-    print(f"wrote {result_path}")
 
     try:
         append_spending(response, model, domain_path, problem_path)
@@ -246,11 +216,10 @@ def run_model(
             spendings_logged=False,
             spending_error={"type": type(exc).__name__, "message": str(exc)},
         )
-        print(f"warning: spendings log failed for {variant_dir.name}/{short_name}: {exc}")
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run one manual model call and write its local artifacts.")
+    parser = argparse.ArgumentParser(description="Run one model for one domain/problem/variant combination.")
     parser.add_argument("--domain-path", required=True)
     parser.add_argument("--problem-path", required=True)
     parser.add_argument("--optimal-plan-path", required=True)

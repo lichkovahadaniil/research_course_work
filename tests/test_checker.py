@@ -1,9 +1,6 @@
 from pathlib import Path
-import shutil
 
-import pytest
-
-from checker import action_sequence_distance, build_metrics, parse_strict_validation_output, strict_validation
+from checker import build_metrics, legacy_validation, strict_validation
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -13,85 +10,104 @@ def load_fixture(name: str) -> str:
     return (FIXTURE_DIR / name).read_text(encoding="utf-8")
 
 
-def test_parse_error_fixture() -> None:
-    parsed = parse_strict_validation_output(load_fixture("strict_parse_error.txt"))
+def test_strict_validation_parse_error(monkeypatch) -> None:
+    monkeypatch.setattr("checker._run_validator", lambda *args, **kwargs: (load_fixture("strict_parse_error.txt"), False))
+    parsed = strict_validation("domain.pddl", "problem.pddl", "plan.pddl")
     assert parsed["parsable"] is False
     assert parsed["executability"] is False
     assert parsed["reachability"] is False
+    assert parsed["plan_length"] is None
     assert parsed["non_executable_failure"] == "parse_error"
-    assert parsed["first_failure_step"] is None
 
 
-def test_state_execution_failure_fixture() -> None:
-    parsed = parse_strict_validation_output(load_fixture("strict_state_execution_failure.txt"))
+def test_strict_validation_state_execution_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "checker._run_validator",
+        lambda *args, **kwargs: (load_fixture("strict_state_execution_failure.txt"), False),
+    )
+    parsed = strict_validation("domain.pddl", "problem.pddl", "plan.pddl")
     assert parsed["parsable"] is True
     assert parsed["executability"] is False
     assert parsed["reachability"] is False
-    assert parsed["non_executable_failure"] == "state_execution_error"
     assert parsed["first_failure_step"] == 2
+    assert parsed["non_executable_failure"] == "state_execution_error"
 
 
-def test_goal_not_reached_fixture() -> None:
-    parsed = parse_strict_validation_output(load_fixture("strict_goal_not_reached.txt"))
-    assert parsed["parsable"] is True
-    assert parsed["executability"] is True
-    assert parsed["reachability"] is False
-    assert parsed["non_executable_failure"] is None
-    assert parsed["strict_final_value"] is None
+def test_legacy_validation_reads_cost(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "checker._run_validator",
+        lambda *args, **kwargs: (load_fixture("strict_valid_goal_reaching.txt"), False),
+    )
+    parsed = legacy_validation("domain.pddl", "problem.pddl", "plan.pddl")
+    assert parsed["cost"] == 7.0
+    assert parsed["goal_reached"] is True
 
 
-def test_valid_goal_reaching_fixture() -> None:
-    parsed = parse_strict_validation_output(load_fixture("strict_valid_goal_reaching.txt"))
-    assert parsed["parsable"] is True
-    assert parsed["executability"] is True
-    assert parsed["reachability"] is True
-    assert parsed["strict_final_value"] == 7.0
-    assert parsed["plan_length"] == 4
+def test_build_metrics_skips_cost_for_unreachable_plan(tmp_path: Path, monkeypatch) -> None:
+    optimal_plan = tmp_path / "p01.plan"
+    optimal_plan.write_text("(a)\n", encoding="utf-8")
 
-
-def test_order_metrics_are_non_negative_and_normalized(tmp_path: Path) -> None:
-    optimal = tmp_path / "optimal.plan"
-    llm = tmp_path / "llm.plan"
-
-    optimal.write_text("(a x)\n(b y)\n(c z)\n", encoding="utf-8")
-    llm.write_text("(a x)\n(c z)\n(c z)\n", encoding="utf-8")
-
-    metrics = action_sequence_distance(llm, optimal)
-
-    assert metrics["insertions"] >= 0
-    assert metrics["deletions"] >= 0
-    assert metrics["total_distance"] >= 0
-    assert 0.0 <= metrics["normalized_distance"] <= 1.0
-
-
-def test_invalid_plan_gap_is_null_on_real_artifact() -> None:
-    metrics = build_metrics(
-        "materials/folding/p01/canonical/domain.pddl",
-        "materials/folding/p01/p01.pddl",
-        "materials/folding/p01/canonical/qwen3-5-35b-a3b-alibaba/llm.plan",
-        "materials/folding/p01/p01.plan",
+    monkeypatch.setattr(
+        "checker.strict_validation",
+        lambda *args, **kwargs: {
+            "parsable": True,
+            "plan_length": None,
+            "executability": False,
+            "reachability": False,
+            "first_failure_step": 3,
+            "non_executable_failure": "state_execution_error",
+            "strict_final_value": None,
+            "validator_timed_out": False,
+            "validator_stdout_strict": "failed",
+        },
     )
 
-    assert metrics["strict"]["reachability"] is False
+    metrics = build_metrics("domain.pddl", "problem.pddl", "plan.pddl", optimal_plan)
+
+    assert "order" not in metrics
+    assert metrics["strict"]["plan_length"] is None
     assert metrics["legacy"]["cost"] is None
-    assert metrics["legacy"]["gap"] is None
+    assert metrics["legacy"]["optimality_ratio"] is None
 
 
-@pytest.mark.skipif(shutil.which("validate") is None, reason="VAL is not installed")
-def test_strict_validation_extracts_first_failure_step_from_real_artifact() -> None:
-    metrics = strict_validation(
-        "materials/folding/p01/canonical/domain.pddl",
-        "materials/folding/p01/p01.pddl",
-        "materials/folding/p01/canonical/qwen3-5-35b-a3b-alibaba/llm.plan",
+def test_build_metrics_computes_optimality_ratio_for_reachable_plan(tmp_path: Path, monkeypatch) -> None:
+    optimal_plan = tmp_path / "p01.plan"
+    optimal_plan.write_text("(a)\n(b)\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "checker.strict_validation",
+        lambda *args, **kwargs: {
+            "parsable": True,
+            "plan_length": 2,
+            "executability": True,
+            "reachability": True,
+            "first_failure_step": None,
+            "non_executable_failure": None,
+            "strict_final_value": 7.0,
+            "validator_timed_out": False,
+            "validator_stdout_strict": "ok",
+        },
     )
-    assert metrics["first_failure_step"] == 8
-
-
-@pytest.mark.skipif(shutil.which("validate") is None, reason="VAL is not installed")
-def test_strict_validation_extracts_final_value_from_real_artifact() -> None:
-    metrics = strict_validation(
-        "materials/folding/p01/canonical/domain.pddl",
-        "materials/folding/p01/p01.pddl",
-        "materials/folding/p01/canonical/gpt-5-mini/llm.plan",
+    monkeypatch.setattr(
+        "checker.legacy_validation",
+        lambda *args, **kwargs: {
+            "cost": 6.0,
+            "goal_reached": True,
+            "validator_timed_out": False,
+            "validator_stdout_legacy": "ok",
+        },
     )
-    assert metrics["strict_final_value"] == 7.0
+    monkeypatch.setattr(
+        "checker._load_reference_plan_stats",
+        lambda *args, **kwargs: {
+            "optimal_cost": 3.0,
+            "optimal_plan_length": 2,
+        },
+    )
+
+    metrics = build_metrics("domain.pddl", "problem.pddl", "plan.pddl", optimal_plan)
+
+    assert metrics["strict"]["plan_length"] == 2
+    assert metrics["legacy"]["cost"] == 6.0
+    assert metrics["legacy"]["optimality_ratio"] == 2.0
+    assert metrics["reference"]["optimal_plan_length"] == 2

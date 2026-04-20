@@ -1,23 +1,20 @@
-from openai import (
-    APIConnectionError,
-    APITimeoutError,
-    InternalServerError,
-    OpenAI,
-    RateLimitError,
-)
 import os
 import time
-import json
 from pathlib import Path
+
 from dotenv import load_dotenv
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from openai import OpenAI
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
 
 load_dotenv()
 
-# Кэш поддержки reasoning
-CAPABILITIES_CACHE = {}
-CACHE_FILE = Path("model_capabilities.json")
 
+MODEL_ALIASES = {
+    "gpt-5-mini": "openai/gpt-5-mini",
+    "grok-4.1-fast": "x-ai/grok-4.1-fast",
+    "qwen/qwen3.5-35b-a3b:alibaba": "qwen/qwen3.5-35b-a3b:alibaba",
+}
 MODEL_CONFIG = {
     "openai/gpt-5-mini": {
         "max_tokens": None,
@@ -27,12 +24,6 @@ MODEL_CONFIG = {
         "max_tokens": None,
         "reasoning_effort": "medium",
     },
-    "xiaomi/mimo-v2-flash": {
-        "max_tokens": None,
-        "reasoning_effort": "medium",
-        "temperature": 0.8,
-        "top_p": 0.95,
-    },
     "qwen/qwen3.5-35b-a3b:alibaba": {
         "max_tokens": None,
         "reasoning_effort": "medium",
@@ -40,206 +31,137 @@ MODEL_CONFIG = {
         "top_p": 0.95,
         "top_k": 20,
         "presence_penalty": 0.0,
-        "frequency_penalty": 0.0, # OpenAI-совместимый аналог repetition_penalty
-        # repetition_penalty=1.0 из HF здесь не нужен — OpenRouter/OpenAI использует frequency_penalty
+        "frequency_penalty": 0.0,
+        'repetition_penalty': 1.0
     },
 }
-
-def load_cache():
-    global CAPABILITIES_CACHE
-    if CACHE_FILE.exists():
-        try:
-            with open(CACHE_FILE, encoding='utf-8') as f:
-                CAPABILITIES_CACHE = json.load(f)
-        except json.JSONDecodeError:
-            CAPABILITIES_CACHE = {}
-
-
-def save_cache():
-    with open(CACHE_FILE, 'w', encoding='utf-8') as f:
-        json.dump(CAPABILITIES_CACHE, f, ensure_ascii=False, indent=2)
-
-
-KNOWN_REASONING_SUPPORT = {
-    "openai/gpt-5-mini": True,
-    "x-ai/grok-4.1-fast": True,
-    "xiaomi/mimo-v2-flash": True,
-    "qwen/qwen3.5-35b-a3b:alibaba": True,   # ← НОВАЯ + alibaba
-}
+RETRYABLE_EXCEPTIONS = (Exception,)
 
 
 def fix_plan_format(plan_text: str) -> str:
-    """Исправляет планы без скобок — самая частая проблема open-source моделей"""
-    if not plan_text:
+    if not plan_text.strip():
         return plan_text
-    lines = plan_text.strip().split('\n')
-    fixed = []
-    for line in lines:
-        line = line.strip()
-        if line and not (line.startswith('(') and line.endswith(')')):
-            # Добавляем скобки, если их нет
-            fixed.append(f"({line})")
+
+    fixed_lines = []
+    for raw_line in plan_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("(") and line.endswith(")"):
+            fixed_lines.append(line)
         else:
-            fixed.append(line)
-    return '\n'.join(fixed)
+            fixed_lines.append(f"({line})")
+    return "\n".join(fixed_lines)
 
-def supports_reasoning(model: str) -> bool:
-    if model in CAPABILITIES_CACHE:
-        return CAPABILITIES_CACHE[model]
 
-    if model in KNOWN_REASONING_SUPPORT:
-        CAPABILITIES_CACHE[model] = KNOWN_REASONING_SUPPORT[model]
-        save_cache()
-        print(f"   🔍 {model} — hardcoded support: {KNOWN_REASONING_SUPPORT[model]} ✅")
-        return KNOWN_REASONING_SUPPORT[model]
+def _resolve_provider_model(model: str) -> str:
+    if model not in MODEL_ALIASES:
+        raise ValueError(f"unsupported model: {model}")
+    return MODEL_ALIASES[model]
 
-    # эмпирическая проверка (для будущих моделей)
-    print(f"   🔍 Проверяем reasoning для {model}... ", end="", flush=True)
-    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.getenv('OPENROUTER_API_KEY'))
-    try:
-        client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": "Say OK"}],
-            extra_body={"reasoning": {"enabled": True}},
-            max_tokens=5,
-        )
-        CAPABILITIES_CACHE[model] = True
-        print("✅ поддерживает")
-    except Exception:
-        CAPABILITIES_CACHE[model] = False
-        print("❌ не поддерживает")
-    save_cache()
-    return CAPABILITIES_CACHE[model]
+
+def _read_text(path: str | Path) -> str:
+    return Path(path).read_text(encoding="utf-8")
 
 
 @retry(
     stop=stop_after_attempt(5),
     wait=wait_exponential(multiplier=2, min=8, max=45),
-    retry=retry_if_exception_type((
-        json.JSONDecodeError,
-        APIConnectionError,
-        APITimeoutError,
-        InternalServerError,
-        RateLimitError,
-    )),
-    reraise=True
+    retry=retry_if_exception_type(RETRYABLE_EXCEPTIONS),
+    reraise=True,
 )
-def call_openrouter(domain, problem, model: str = "openai/gpt-5-mini", reasoning_enabled: bool = False):
-    load_cache()
-
-    # Получаем конфиг именно для этой модели
-    base_model = model.split(':')[0] if ':' in model else model
-    config = MODEL_CONFIG.get(base_model, {"max_tokens": 16000, "reasoning_effort": "medium"})
-
-    if reasoning_enabled and not supports_reasoning(model):
-        reasoning_enabled = False
+def call_openrouter(
+    domain_path: str | Path,
+    problem_path: str | Path,
+    model: str = "gpt-5-mini",
+    reasoning_enabled: bool = True,
+    fix_plan_format_enabled: bool = False,
+) -> dict[str, object]:
+    provider_model = _resolve_provider_model(model)
+    config = MODEL_CONFIG[provider_model]
 
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
-        api_key=os.getenv('OPENROUTER_API_KEY'),
-        timeout=777.0,
+        api_key=os.getenv("OPENROUTER_API_KEY"),
+        timeout=1500.0,
     )
 
-    def read_pddl(path):
-        with open(path, 'r', encoding='utf-8') as f:
-            return f.read()
-
-    domain_text = read_pddl(domain)
-    problem_text = read_pddl(problem)
-
-    prompt = f'''You are a deterministic PDDL planner.
+    prompt = f"""You are a deterministic PDDL planner.
 
 Goal: produce a valid plan that achieves the goal state with minimal number of actions.
 
 Rules:
 - Output ONLY the plan.
 - One action per line.
-- No extra text
-- No empty lines
-- Do NOT output anything before or after the plan.
+- No extra text.
+- No empty lines.
 - Stop immediately after the last action.
 
 Constraints:
 - The plan MUST be valid under the domain and problem.
-- The plan SHOULD be optimal (minimum number of actions).
+- The plan SHOULD be optimal.
 - Use only actions defined in the domain.
 - Respect all preconditions and effects.
 
-Strategy (internal, do not output):
-- Reason step-by-step silently.
-- Don't overthink.
-- Minimize the number of actions.
-- Avoid redundant or reversing actions.
-
 Domain:
-{domain_text}
+{_read_text(domain_path)}
 
 Problem:
-{problem_text}
+{_read_text(problem_path)}
 
 Return ONLY the plan.
-Each line must contain exactly one action in PDDL format:
+Each line must contain exactly one action in PDDL format (use brackets):
 (action-name arg1 arg2 ...)
-'''
+"""
+
     extra_body = {}
     if reasoning_enabled:
         extra_body["reasoning"] = {"enabled": True}
-        if config["reasoning_effort"] is not None:
-            extra_body["reasoning"]["effort"] = config["reasoning_effort"]
+        effort = config.get("reasoning_effort")
+        if effort is not None:
+            extra_body["reasoning"]["effort"] = effort
+
+    create_kwargs = {
+        "model": provider_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "extra_body": extra_body,
+        "temperature": config.get("temperature", 0.0),
+        "max_tokens": config.get("max_tokens"),
+        "top_p": config.get("top_p", 1.0),
+    }
+    for key in ("presence_penalty", "frequency_penalty"):
+        if key in config:
+            create_kwargs[key] = config[key]
+
+    for key in ("top_k", "repetition_penalty"):
+        if key in config:
+            extra_body[key] = config[key]
             
-    start = time.time()
-    mode = "reasoning" if reasoning_enabled else "plain"
-    print(f"   → {model} | {mode} ... ", end="", flush=True)
+    started_at = time.time()
+    response = client.chat.completions.create(**create_kwargs)
+    duration = round(time.time() - started_at, 2)
 
-    try:
-        # Динамически берём параметры из MODEL_CONFIG
-        create_kwargs = {
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "extra_body": extra_body,
-            "temperature": config.get("temperature", 0.0),
-            "max_tokens": config.get("max_tokens"),
-            "top_p": config.get("top_p", 1.0),
-        }
+    message = response.choices[0].message
+    raw_response = message.content or ""
+    plan = fix_plan_format(raw_response) if fix_plan_format_enabled else raw_response
 
-        # Добавляем только те параметры, которые реально указаны в конфиге модели
-        for param in ["top_k", "presence_penalty", "frequency_penalty"]:
-            if param in config:
-                create_kwargs[param] = config[param]
+    reasoning_text = getattr(message, "reasoning", "") or ""
+    if not reasoning_text and hasattr(message, "reasoning_details"):
+        fragments = [
+            item.get("text", "")
+            for item in message.reasoning_details
+            if isinstance(item, dict) and item.get("text")
+        ]
+        reasoning_text = "\n".join(fragments)
 
-        response = client.chat.completions.create(**create_kwargs)
-
-        duration = time.time() - start
-        print(f"готово ({duration:.1f}s)")
-
-        msg = response.choices[0].message
-        raw_content = msg.content.strip() if msg.content else ""
-
-        # Твой оригинальный простой стиль
-        # final_plan = fix_plan_format(raw_content)
-
-        final_plan = raw_content
-
-        # Reasoning
-        reasoning_text = ""
-        if reasoning_enabled:
-            reasoning_text = getattr(msg, 'reasoning', '') or ""
-            if not reasoning_text and hasattr(msg, 'reasoning_details'):
-                reasoning_text = "\n".join(
-                    d.get('text', '') for d in msg.reasoning_details if isinstance(d, dict)
-                )
-
-        return {
-            "plan": final_plan,
-            "reasoning": reasoning_text,
-            "reasoning_enabled": reasoning_enabled,
-            "model": model,
-            "duration_sec": round(duration, 2),
-            "prompt_tokens": getattr(response.usage, 'prompt_tokens', None),
-            "completion_tokens": getattr(response.usage, 'completion_tokens', None),
-            "total_tokens": getattr(response.usage, 'total_tokens', None),
-        }
-
-    except Exception as e:
-        print(f"❌ ОШИБКА ({time.time()-start:.1f}s): {e}")
-        raise
+    return {
+        "raw_response": raw_response,
+        "plan": plan,
+        "reasoning": reasoning_text,
+        "reasoning_enabled": reasoning_enabled,
+        "model": model,
+        "duration_sec": duration,
+        "prompt_tokens": getattr(response.usage, "prompt_tokens", None),
+        "completion_tokens": getattr(response.usage, "completion_tokens", None),
+        "total_tokens": getattr(response.usage, "total_tokens", None),
+    }
