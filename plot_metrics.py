@@ -97,7 +97,39 @@ plt.rcParams.update(
 def _load_result(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
+# Современная палитра цветов для трех моделей (Синий, Оранжевый, Зеленый)
+MODERN_COLORS = ["#348ABD", "#E24A33", "#8EBA42"]
 
+def _apply_modern_style(ax):
+    """Делает график чистым и минималистичным."""
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_color('#DDDDDD')
+    ax.spines['bottom'].set_color('#DDDDDD')
+    
+    # Легкая пунктирная сетка только по оси Y
+    ax.grid(axis='y', linestyle='--', alpha=0.6, color='#CCCCCC')
+    ax.grid(axis='x', visible=False)
+    ax.set_axisbelow(True) # Сетка прячется за столбцами
+
+def _add_value_labels(ax, is_rate: bool):
+    """Добавляет цифры над каждым столбцом."""
+    for p in ax.patches:
+        height = p.get_height()
+        if height > 0.001:  # Не пишем ничего над пустыми столбцами
+            if is_rate:
+                text = f"{height:.0%}" # Формат 85%
+            else:
+                text = f"{int(height)}" if height.is_integer() else f"{height:.1f}"
+            
+            ax.annotate(text,
+                        (p.get_x() + p.get_width() / 2., height),
+                        ha='center', va='bottom',
+                        xytext=(0, 4), # Сдвиг на 4 пикселя вверх
+                        textcoords='offset points',
+                        fontsize=9,
+                        color='#444444')
+            
 def build_records(domains: list[str], problem_ids: list[str]) -> pd.DataFrame:
     records: list[dict] = []
 
@@ -168,29 +200,83 @@ def _metric_title(metric: dict, coverage_ratio: float) -> str:
     return f"{metric['title']} ({coverage_ratio:.0%})"
 
 
-def _plot_bar_frame(frame: pd.DataFrame, metric: dict, output_path: Path, title: str) -> None:
-    pivot = (
-        frame.pivot(index="variant", columns="model", values=metric["slug"])
-        .reindex(index=VARIANT_NAMES, columns=MODEL_NAMES)
-    )
-    if pivot.empty or pivot.notna().sum().sum() == 0:
+def _plot_problem_average_bar(frame: pd.DataFrame, metric: dict, output_path: Path, title: str) -> None:
+    if frame.empty:
         return
 
-    ax = pivot.plot(kind="bar", width=0.82)
-    ax.set_title(title)
-    ax.set_xlabel("Variant")
-    ax.set_ylabel(metric["title"])
-    ax.legend(title="Model")
-    ax.tick_params(axis="x", rotation=0)
+    avg_series = frame.groupby("model")[metric["slug"]].mean().reindex(MODEL_NAMES).fillna(0)
 
+    ax = avg_series.plot(
+        kind="bar", 
+        width=0.6, 
+        figsize=(8, 6),
+        color=MODERN_COLORS,
+        edgecolor="none" # Убираем черную обводку самих столбцов
+    )
+    
+    ax.set_title(title, pad=20, fontsize=14, fontweight='bold', color='#333333')
+    ax.set_ylabel(f"Average {metric['title']}", fontsize=11, color='#555555')
+    ax.set_xlabel("Model", fontsize=11, color='#555555')
+    
+    _apply_modern_style(ax)
+    _add_value_labels(ax, is_rate=metric["rate"])
+    
     if metric["rate"]:
-        ax.set_ylim(0, 1)
+        ax.set_ylim(0, 1.15) # Увеличенный запас сверху для цифр
         ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
+    else:
+        ax.set_ylim(0, ax.get_ylim()[1] * 1.15)
+    
+    plt.xticks(rotation=0, color='#333333')
+    plt.yticks(color='#333333')
+    plt.tight_layout()
+    
+    plt.savefig(output_path, dpi=300, bbox_inches="tight") # dpi=300 для высокой четкости
+    plt.close()
 
-    figure = ax.get_figure()
-    figure.tight_layout()
-    figure.savefig(output_path, dpi=240, bbox_inches="tight")
-    plt.close(figure)
+
+def _plot_summary_bar(frame: pd.DataFrame, metric: dict, output_path: Path, title: str) -> None:
+    if frame.empty:
+        return
+
+    avg_frame = frame.groupby(["variant", "model"])[metric["slug"]].mean().reset_index()
+    
+    pivot = (
+        avg_frame.pivot(index="variant", columns="model", values=metric["slug"])
+        .reindex(index=VARIANT_NAMES, columns=MODEL_NAMES)
+        .fillna(0)
+    )
+
+    ax = pivot.plot(
+        kind="bar", 
+        width=0.8, 
+        figsize=(12, 6), # Сделали чуть шире для summary
+        color=MODERN_COLORS,
+        edgecolor="none"
+    )
+    
+    ax.set_title(title, pad=20, fontsize=14, fontweight='bold', color='#333333')
+    ax.set_ylabel(f"Average {metric['title']}", fontsize=11, color='#555555')
+    ax.set_xlabel("Domain Variant", fontsize=11, color='#555555')
+    
+    _apply_modern_style(ax)
+    _add_value_labels(ax, is_rate=metric["rate"])
+    
+    # Красивая легенда без страшной белой рамки
+    ax.legend(title="Models", bbox_to_anchor=(1.02, 1), loc='upper left', frameon=False, title_fontsize='12')
+    
+    if metric["rate"]:
+        ax.set_ylim(0, 1.15)
+        ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
+    else:
+        ax.set_ylim(0, ax.get_ylim()[1] * 1.15)
+    
+    plt.xticks(rotation=45, ha='right', color='#333333') # ha='right' чтобы подписи не съезжали
+    plt.yticks(color='#333333')
+    plt.tight_layout()
+    
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
 
 
 def build_reports(domains: list[str], problem_ids: list[str]) -> None:
@@ -210,26 +296,26 @@ def build_reports(domains: list[str], problem_ids: list[str]) -> None:
 
         total_expected = len(problem_ids) * len(VARIANT_NAMES) * len(MODEL_NAMES)
 
+        # Рисуем графики для каждой конкретной проблемы (усредненно по перемешиваниям)
         for problem_id in problem_ids:
             problem_records = domain_records[domain_records["problem"] == problem_id].copy()
             problem_dir = graph_dir / problem_id
 
             for metric in METRICS:
                 metric_records = _metric_subset(problem_records, metric)
-                _plot_bar_frame(
+                _plot_problem_average_bar( # Используем первую функцию
                     metric_records,
                     metric,
                     problem_dir / f"{metric['slug']}_barplot.png",
-                    f"{metric['title']} - {problem_id}",
+                    f"Average {metric['title']} across variants - {problem_id}",
                 )
 
+        # Рисуем сводные графики (усредненно по проблемам)
         for metric in METRICS:
             metric_records = _metric_subset(domain_records, metric)
-            summary_frame = summarize_records(metric_records, metric["slug"])
-            coverage_ratio = 0.0 if total_expected == 0 else len(metric_records) / total_expected
-            _plot_bar_frame(
-                summary_frame,
+            _plot_summary_bar( # Используем вторую функцию
+                metric_records, 
                 metric,
                 summary_dir / f"{metric['slug']}_summary_barplot.png",
-                _metric_title(metric, coverage_ratio),
+                f"Overall Average {metric['title']} by Variant"
             )
