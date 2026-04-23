@@ -6,33 +6,33 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from token_usage import build_token_usage_from_response
+
 
 load_dotenv()
 
 
 MODEL_ALIASES = {
-    "gpt-5-mini": "openai/gpt-5-mini",
     "grok-4.1-fast": "x-ai/grok-4.1-fast",
-    "qwen/qwen3.5-35b-a3b:alibaba": "qwen/qwen3.5-35b-a3b:alibaba",
+    "deepseek-v3.2": "deepseek/deepseek-v3.2",
 }
 MODEL_CONFIG = {
-    "openai/gpt-5-mini": {
-        "max_tokens": None,
-        "reasoning_effort": "medium",
-    },
     "x-ai/grok-4.1-fast": {
         "max_tokens": None,
+        "supports_reasoning": True,
         "reasoning_effort": "medium",
     },
-    "qwen/qwen3.5-35b-a3b:alibaba": {
+    "deepseek/deepseek-v3.2": {
         "max_tokens": None,
+        "supports_reasoning": True,
         "reasoning_effort": "medium",
-        "temperature": 0.6,
+        "temperature": 1.0,
         "top_p": 0.95,
-        "top_k": 20,
-        "presence_penalty": 0.0,
-        "frequency_penalty": 0.0,
-        'repetition_penalty': 1.0
+        "provider": {
+            "order": ["Novita"],
+            "allow_fallbacks": False,
+            "quantizations": ["fp8"],
+        },
     },
 }
 RETRYABLE_EXCEPTIONS = (Exception,)
@@ -73,7 +73,7 @@ def _read_text(path: str | Path) -> str:
 def call_openrouter(
     domain_path: str | Path,
     problem_path: str | Path,
-    model: str = "gpt-5-mini",
+    model: str = "grok-4.1-fast",
     reasoning_enabled: bool = True,
     fix_plan_format_enabled: bool = False,
 ) -> dict[str, object]:
@@ -115,7 +115,8 @@ Each line must contain exactly one action in PDDL format (use brackets):
 """
 
     extra_body = {}
-    if reasoning_enabled:
+    reasoning_used = reasoning_enabled and config.get("supports_reasoning", True)
+    if reasoning_used:
         extra_body["reasoning"] = {"enabled": True}
         effort = config.get("reasoning_effort")
         if effort is not None:
@@ -133,7 +134,7 @@ Each line must contain exactly one action in PDDL format (use brackets):
         if key in config:
             create_kwargs[key] = config[key]
 
-    for key in ("top_k", "repetition_penalty"):
+    for key in ("top_k", "repetition_penalty", "provider"):
         if key in config:
             extra_body[key] = config[key]
             
@@ -153,15 +154,18 @@ Each line must contain exactly one action in PDDL format (use brackets):
             if isinstance(item, dict) and item.get("text")
         ]
         reasoning_text = "\n".join(fragments)
+    token_usage = build_token_usage_from_response(
+        response=response,
+        reasoning_text=reasoning_text,
+        raw_response=raw_response,
+    )
 
     return {
         "raw_response": raw_response,
         "plan": plan,
         "reasoning": reasoning_text,
-        "reasoning_enabled": reasoning_enabled,
+        "reasoning_enabled": reasoning_used,
         "model": model,
         "duration_sec": duration,
-        "prompt_tokens": getattr(response.usage, "prompt_tokens", None),
-        "completion_tokens": getattr(response.usage, "completion_tokens", None),
-        "total_tokens": getattr(response.usage, "total_tokens", None),
+        **token_usage,
     }

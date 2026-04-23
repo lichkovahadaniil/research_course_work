@@ -1,6 +1,8 @@
 import argparse
 import json
 import os
+import shutil
+import statistics
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -8,6 +10,7 @@ from typing import Any
 import fcntl
 
 from checker import build_metrics
+from token_usage import build_token_usage_from_payload
 
 
 def model_output_dir_name(model_name: str) -> str:
@@ -40,14 +43,18 @@ def update_status(status_path: Path, stage: str, **extra: Any) -> None:
 def append_spending(response: dict[str, Any], model: str, domain_path: Path, problem_path: Path) -> None:
     spendings_path = Path("spendings.json")
     lock_path = spendings_path.with_suffix(".lock")
+    token_usage = build_token_usage_from_payload(response)
     entry = {
         "timestamp": datetime.now().isoformat(),
         "model": model,
         "domain": str(domain_path),
         "problem": str(problem_path),
-        "prompt_tokens": response.get("prompt_tokens"),
-        "completion_tokens": response.get("completion_tokens"),
-        "total_tokens": response.get("total_tokens"),
+        "prompt_tokens": token_usage["prompt_tokens"],
+        "completion_tokens": token_usage["completion_tokens"],
+        "total_tokens": token_usage["total_tokens"],
+        "reasoning_completion_tokens": token_usage["reasoning_completion_tokens"],
+        "raw_completion_tokens": token_usage["raw_completion_tokens"],
+        "completion_token_breakdown_source": token_usage["completion_token_breakdown_source"],
         "duration_sec": response.get("duration_sec"),
     }
 
@@ -78,11 +85,80 @@ def load_json_dict(path: Path) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def result_is_complete(payload: dict[str, Any] | None) -> bool:
-    if not payload:
-        return False
-    metrics = payload.get("metrics")
-    return isinstance(metrics, dict) and {"strict", "legacy", "reference"}.issubset(metrics)
+def _metrics_record_from_payload(payload: dict[str, Any]) -> dict[str, float | None]:
+    metrics = payload.get("metrics") or {}
+    strict = metrics.get("strict") or {}
+    legacy = metrics.get("legacy") or {}
+    token_usage = build_token_usage_from_payload(payload)
+
+    executability = bool(strict.get("executability"))
+    reachability = bool(strict.get("reachability"))
+    return {
+        "plan_length": strict.get("plan_length") if reachability else None,
+        "executability": float(executability),
+        "reachability": float(reachability),
+        "conditional_reachability": float(executability and reachability),
+        "optimality_ratio": legacy.get("optimality_ratio") if reachability else None,
+        "first_failure_step": strict.get("first_failure_step"),
+        "non_executable_failure": float(strict.get("non_executable_failure") is not None),
+        "prompt_tokens": token_usage["prompt_tokens"],
+        "completion_tokens": token_usage["completion_tokens"],
+        "total_tokens": token_usage["total_tokens"],
+        "reasoning_completion_tokens": token_usage["reasoning_completion_tokens"],
+        "raw_completion_tokens": token_usage["raw_completion_tokens"],
+    }
+
+
+def _summarize_metric(values: list[float | None]) -> dict[str, float | int | None]:
+    present_values = [float(value) for value in values if value is not None]
+    if not present_values:
+        return {
+            "count": 0,
+            "mean": None,
+            "std": None,
+        }
+
+    return {
+        "count": len(present_values),
+        "mean": sum(present_values) / len(present_values),
+        "std": statistics.pstdev(present_values) if len(present_values) > 1 else 0.0,
+    }
+
+
+def refresh_aggregate_for_model(order_dir: Path, model: str) -> None:
+    model_dir_name = model_output_dir_name(model)
+    run_dirs = sorted(
+        [child for child in order_dir.iterdir() if child.is_dir() and child.name.isdigit()],
+        key=lambda child: int(child.name),
+    )
+
+    payloads: list[dict[str, Any]] = []
+    run_ids: list[int] = []
+    for run_dir in run_dirs:
+        payload = load_json_dict(run_dir / model_dir_name / "llm_result.json")
+        if payload is None:
+            continue
+        payloads.append(payload)
+        run_ids.append(int(run_dir.name))
+
+    if not payloads:
+        return
+
+    metric_records = [_metrics_record_from_payload(payload) for payload in payloads]
+    aggregate_payload = {
+        "model": model,
+        "updated_at": datetime.now().isoformat(),
+        "run_count": len(run_ids),
+        "runs": run_ids,
+        "metrics": {
+            metric_name: _summarize_metric([record[metric_name] for record in metric_records])
+            for metric_name in metric_records[0]
+        },
+    }
+
+    aggregate_dir = order_dir / "aggregate"
+    aggregate_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(aggregate_dir / f"{model_dir_name}.json", aggregate_payload)
 
 
 def build_result_payload(
@@ -126,61 +202,24 @@ def safe_build_metrics(
         }
 
 
-def rebuild_result_from_existing_plan(
-    *,
-    model: str,
-    plan_path: Path,
-    result_path: Path,
-    status_path: Path,
-    domain_path: Path,
-    problem_path: Path,
-    optimal_plan_path: Path,
-    existing_payload: dict[str, Any] | None,
-) -> None:
-    update_status(status_path, "rebuilding_from_existing_plan", plan_file=str(plan_path))
-    metrics, postprocess_error = safe_build_metrics(domain_path, problem_path, plan_path, optimal_plan_path)
-    payload = build_result_payload(
-        model=model,
-        plan_path=plan_path,
-        metrics=metrics,
-        response=existing_payload,
-        postprocess_error=postprocess_error,
-    )
-    atomic_write_json(result_path, payload)
-    update_status(status_path, "result_written_from_existing_plan", result_file=str(result_path))
-
-
 def run_model(
     domain_path: Path,
     problem_path: Path,
     optimal_plan_path: Path,
-    variant_dir: Path,
+    output_dir: Path,
     model: str,
     force: bool,
 ) -> None:
-    model_dir = variant_dir / model_output_dir_name(model)
-    model_dir.mkdir(parents=True, exist_ok=True)
-
-    plan_path = model_dir / "llm.plan"
-    result_path = model_dir / "llm_result.json"
-    status_path = model_dir / "run_status.json"
-    existing_payload = load_json_dict(result_path)
+    plan_path = output_dir / "llm.plan"
+    result_path = output_dir / "llm_result.json"
+    status_path = output_dir / "run_status.json"
 
     if plan_path.exists() and not force:
-        if result_is_complete(existing_payload):
-            update_status(status_path, "skipped_existing_result", result_file=str(result_path))
-            return
-        rebuild_result_from_existing_plan(
-            model=model,
-            plan_path=plan_path,
-            result_path=result_path,
-            status_path=status_path,
-            domain_path=domain_path,
-            problem_path=problem_path,
-            optimal_plan_path=optimal_plan_path,
-            existing_payload=existing_payload,
-        )
         return
+
+    if force and output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     from api_call import call_openrouter
 
@@ -205,6 +244,7 @@ def run_model(
     )
     atomic_write_json(result_path, payload)
     update_status(status_path, "result_written", result_file=str(result_path))
+    refresh_aggregate_for_model(output_dir.parent.parent, model)
 
     try:
         append_spending(response, model, domain_path, problem_path)
@@ -223,7 +263,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--domain-path", required=True)
     parser.add_argument("--problem-path", required=True)
     parser.add_argument("--optimal-plan-path", required=True)
-    parser.add_argument("--variant-dir", required=True)
+    parser.add_argument("--output-dir", required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--force", action="store_true")
     return parser
@@ -235,7 +275,7 @@ def main() -> None:
         domain_path=Path(args.domain_path),
         problem_path=Path(args.problem_path),
         optimal_plan_path=Path(args.optimal_plan_path),
-        variant_dir=Path(args.variant_dir),
+        output_dir=Path(args.output_dir),
         model=args.model,
         force=args.force,
     )

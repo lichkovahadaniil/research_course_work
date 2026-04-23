@@ -1,11 +1,9 @@
+import json
 import shutil
 from pathlib import Path
 
+from experiment_config import DOMAIN_TYPES, PROBLEM_IDS
 from shuffler import VARIANT_NAMES, shuffle
-
-
-DOMAIN_TYPES = ["folding", "labyrinth"]
-PROBLEM_IDS = [f"p{index:02d}" for index in range(1, 21)]
 
 
 def _normalize_problem_ids(problems: list[str] | None = None) -> list[str]:
@@ -18,6 +16,30 @@ def _cleanup_problem_variants(problem_dir: Path) -> None:
             continue
         if child.name in VARIANT_NAMES or (child / "domain.pddl").exists():
             shutil.rmtree(child)
+
+
+def _variants_are_up_to_date(problem_dir: Path) -> bool:
+    metadata_path = problem_dir / "shuffle_meta.json"
+    if not metadata_path.exists():
+        return False
+
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False
+
+    if metadata.get("variants") != VARIANT_NAMES:
+        return False
+
+    variant_orders = metadata.get("variant_orders")
+    if not isinstance(variant_orders, dict):
+        return False
+    if list(variant_orders) != VARIANT_NAMES:
+        return False
+    if not all(isinstance(order, list) and order for order in variant_orders.values()):
+        return False
+
+    return all((problem_dir / variant_name / "domain.pddl").exists() for variant_name in VARIANT_NAMES)
 
 
 def generate_paths(domains: list[str] | None = None, problems: list[str] | None = None, force: bool = False) -> None:
@@ -65,8 +87,7 @@ def process_domains(
                 if shuffle_meta_path.exists():
                     shuffle_meta_path.unlink()
 
-            frequency_dir = problem_dir / "frequency"
-            if frequency_dir.exists() and not force:
+            if not force and _variants_are_up_to_date(problem_dir):
                 continue
 
             shuffle(

@@ -1,18 +1,15 @@
 import argparse
+import concurrent.futures
 import subprocess
 import sys
 from pathlib import Path
-import concurrent.futures
 
-from domain_generation import DOMAIN_TYPES, PROBLEM_IDS, generate_paths, process_domains
+from domain_generation import generate_paths, process_domains
+from experiment_config import DOMAIN_TYPES, MODEL_NAMES, PROBLEM_IDS
+from manual_model_run import model_output_dir_name
 from shuffler import VARIANT_NAMES
 
-
-MODEL_NAMES = [
-    "gpt-5-mini",
-    "grok-4.1-fast",
-    "qwen/qwen3.5-35b-a3b:alibaba",
-]
+DEFAULT_DOMAIN = DOMAIN_TYPES[0]
 
 
 def normalize_problem_id(problem_id: str) -> str:
@@ -30,47 +27,74 @@ def normalize_problem_ids(problem_ids: list[str] | None) -> list[str]:
     return [normalize_problem_id(problem_id) for problem_id in problem_ids]
 
 
-def build_run_commands(domains: list[str], problem_ids: list[str]) -> list[list[str]]:
+def build_run_commands(
+    problem_ids: list[str],
+    models: list[str],
+    orders: list[str],
+    runs: int,
+    force: bool,
+) -> list[list[str]]:
+    if runs < 1:
+        raise ValueError("runs must be at least 1")
+
     commands: list[list[str]] = []
     script_path = Path(__file__).with_name("manual_model_run.py")
 
-    for domain_name in domains:
-        for problem_id in problem_ids:
-            problem_dir = Path("materials") / domain_name / problem_id
-            problem_path = problem_dir / f"{problem_id}.pddl"
-            optimal_plan_path = problem_dir / f"{problem_id}.plan"
+    for problem_id in problem_ids:
+        problem_dir = Path("materials") / DEFAULT_DOMAIN / problem_id
+        problem_path = problem_dir / f"{problem_id}.pddl"
+        optimal_plan_path = problem_dir / f"{problem_id}.plan"
 
-            for variant_name in VARIANT_NAMES:
-                variant_dir = problem_dir / variant_name
-                domain_path = variant_dir / "domain.pddl"
-                if not domain_path.exists():
-                    raise FileNotFoundError(
-                        f"missing variant domain: {domain_path}. Run `python3 main.py prepare --force` first."
-                    )
+        for order_name in orders:
+            order_dir = problem_dir / order_name
+            domain_path = order_dir / "domain.pddl"
+            if not domain_path.exists():
+                raise FileNotFoundError(
+                    f"missing variant domain: {domain_path}. Run `python3 main.py prepare --force` first."
+                )
 
-                for model_name in MODEL_NAMES:
-                    commands.append(
-                        [
-                            sys.executable,
-                            str(script_path),
-                            "--domain-path",
-                            str(domain_path),
-                            "--problem-path",
-                            str(problem_path),
-                            "--optimal-plan-path",
-                            str(optimal_plan_path),
-                            "--variant-dir",
-                            str(variant_dir),
-                            "--model",
-                            model_name,
-                        ]
-                    )
+            for run_id in range(1, runs + 1):
+                run_dir = order_dir / str(run_id)
+
+                for model_name in models:
+                    output_dir = run_dir / model_output_dir_name(model_name)
+                    plan_path = output_dir / "llm.plan"
+                    if plan_path.exists() and not force:
+                        continue
+
+                    command = [
+                        sys.executable,
+                        str(script_path),
+                        "--domain-path",
+                        str(domain_path),
+                        "--problem-path",
+                        str(problem_path),
+                        "--optimal-plan-path",
+                        str(optimal_plan_path),
+                        "--output-dir",
+                        str(output_dir),
+                        "--model",
+                        model_name,
+                    ]
+                    if force:
+                        command.append("--force")
+                    commands.append(command)
     return commands
 
 
-def run_models(domains: list[str], problem_ids: list[str], jobs: int = 1) -> None:
-    commands = build_run_commands(domains, problem_ids)
+def run_models(
+    problem_ids: list[str],
+    models: list[str],
+    orders: list[str],
+    runs: int,
+    jobs: int = 1,
+    force: bool = False,
+) -> None:
+    commands = build_run_commands(problem_ids, models, orders, runs, force)
     total = len(commands)
+    if total == 0:
+        print("Nothing to run.")
+        return
 
     if jobs == 1:
         for index, command in enumerate(commands, start=1):
@@ -109,10 +133,12 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument("--force", action="store_true")
 
     models_run_parser = subparsers.add_parser("models-run", help="Run all requested model jobs.")
-    models_run_parser.add_argument("--domain", choices=DOMAIN_TYPES)
+    models_run_parser.add_argument("--models", nargs="+", choices=MODEL_NAMES, required=True)
     models_run_parser.add_argument("--problems", nargs="*")
-    models_run_parser.add_argument("--all", action="store_true")
+    models_run_parser.add_argument("--orders", nargs="+", choices=VARIANT_NAMES, required=True)
+    models_run_parser.add_argument("--runs", type=int, default=1)
     models_run_parser.add_argument("--jobs", type=int, default=1, help="Number of parallel processes (default: 1)")
+    models_run_parser.add_argument("--force", action="store_true")
 
     subparsers.add_parser("report", help="Build barplot reports.")
     return parser
@@ -127,12 +153,16 @@ def main() -> None:
         return
 
     if args.command == "models-run":
-        if args.all:
-            run_models(DOMAIN_TYPES, PROBLEM_IDS, jobs=args.jobs)
-            return
-        if args.domain is None:
-            parser.error("--domain is required unless --all is used")
-        run_models([args.domain], normalize_problem_ids(args.problems), jobs=args.jobs)
+        if args.runs < 1:
+            parser.error("--runs must be at least 1")
+        run_models(
+            normalize_problem_ids(args.problems),
+            args.models,
+            args.orders,
+            args.runs,
+            jobs=args.jobs,
+            force=args.force,
+        )
         return
 
     if args.command == "report":

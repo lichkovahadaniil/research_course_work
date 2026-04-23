@@ -1,19 +1,18 @@
 # research_course_work
 
-Minimal local pipeline for two IPC 2023 domains: `folding` and `labyrinth`.
+Minimal local pipeline for the IPC 2023 `labyrinth` domain.
 
 ## Scope
 
-- Domains: `folding`, `labyrinth`
+- Domain: `labyrinth`
 - Problems: `p01`-`p20`
-- Models: `gpt-5-mini`, `grok-4.1-fast`, `qwen/qwen3.5-35b-a3b:alibaba`
+- Models: `grok-4.1-fast`, `deepseek-v3.2`
 - Variants per problem:
+  - `canonical`
   - `frequency`
-  - `dispersion_01`
-  - `dispersion_02`
-  - `dispersion_03`
-  - `dispersion_04`
-  - `dispersion_05`
+  - `disp_1`
+  - `disp_2`
+  - `disp_3`
 
 ## Requirements
 
@@ -34,9 +33,9 @@ python3 main.py prepare --force
 Run model jobs:
 
 ```bash
-python3 main.py models-run --domain folding
-python3 main.py models-run --domain labyrinth --problems p01 p05 p20
-python3 main.py models-run --all
+python3 main.py models-run --models grok-4.1-fast --orders frequency disp_3 --problems p01
+python3 main.py models-run --models grok-4.1-fast deepseek-v3.2 --orders canonical frequency disp_3 --runs 5
+python3 main.py models-run --models deepseek-v3.2 --orders canonical --problems p01 p05 --runs 4 --force
 ```
 
 Build reports:
@@ -50,7 +49,13 @@ python3 main.py report
 Each model run writes `llm_result.json`, `llm.plan`, and `run_status.json` under:
 
 ```text
-materials/<domain>/<problem>/<variant>/<model_dir>/
+materials/<domain>/<problem>/<variant>/<run>/<model_dir>/
+```
+
+Per-order aggregates are refreshed under:
+
+```text
+materials/<domain>/<problem>/<variant>/aggregate/<model_dir>.json
 ```
 
 Reports are written to:
@@ -60,8 +65,7 @@ materials/<domain>/graph/
 ├── p01/
 ├── p02/
 ├── ...
-├── p20/
-└── summary/
+└── p20/
 ```
 
-Only barplots are generated.
+Only per-problem barplots are generated.

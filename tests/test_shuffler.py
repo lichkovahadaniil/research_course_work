@@ -2,7 +2,7 @@ import json
 import re
 from pathlib import Path
 
-from shuffler import VARIANT_NAMES, shuffle
+from shuffler import VARIANT_NAMES, build_even_inversion_vector, kendall_tau_distance, shuffle
 
 
 TOY_DOMAIN = """(define (domain toy)
@@ -56,6 +56,10 @@ def extract_action_order(domain_path: Path) -> list[str]:
     return re.findall(r"\(\s*:action\s+([^\s)]+)", domain_path.read_text(encoding="utf-8"))
 
 
+def test_build_even_inversion_vector_spreads_inversions_evenly() -> None:
+    assert build_even_inversion_vector(5, 4) == [1, 1, 1, 1, 0]
+
+
 def test_shuffle_creates_frequency_and_dispersion_variants(tmp_path: Path) -> None:
     domain_path = tmp_path / "domain.pddl"
     problem_path = tmp_path / "p01.pddl"
@@ -68,19 +72,39 @@ def test_shuffle_creates_frequency_and_dispersion_variants(tmp_path: Path) -> No
 
     shuffle(domain_path, problem_path, optimal_plan_path, save_dir, seed=52, problem_id="p01")
 
+    canonical_order = ["alpha", "beta", "gamma", "delta", "epsilon"]
     frequency_order = ["beta", "alpha", "gamma", "delta", "epsilon"]
+
+    assert extract_action_order(save_dir / "canonical" / "domain.pddl") == canonical_order
     assert extract_action_order(save_dir / "frequency" / "domain.pddl") == frequency_order
-    assert extract_action_order(save_dir / "dispersion_01" / "domain.pddl") == [
-        "epsilon",
+    assert extract_action_order(save_dir / "disp_1" / "domain.pddl") == [
+        "delta",
         "beta",
         "alpha",
         "gamma",
-        "delta",
+        "epsilon",
     ]
-    assert extract_action_order(save_dir / "dispersion_05" / "domain.pddl") == frequency_order
+    assert extract_action_order(save_dir / "disp_2" / "domain.pddl") == [
+        "epsilon",
+        "delta",
+        "beta",
+        "alpha",
+        "gamma",
+    ]
+    assert extract_action_order(save_dir / "disp_3" / "domain.pddl") == [
+        "epsilon",
+        "delta",
+        "gamma",
+        "alpha",
+        "beta",
+    ]
+
+    assert kendall_tau_distance(frequency_order, extract_action_order(save_dir / "disp_1" / "domain.pddl")) == 3
+    assert kendall_tau_distance(frequency_order, extract_action_order(save_dir / "disp_2" / "domain.pddl")) == 7
+    assert kendall_tau_distance(frequency_order, extract_action_order(save_dir / "disp_3" / "domain.pddl")) == 10
 
 
-def test_shuffle_meta_is_minimal(tmp_path: Path) -> None:
+def test_shuffle_meta_contains_variant_orders(tmp_path: Path) -> None:
     domain_path = tmp_path / "domain.pddl"
     problem_path = tmp_path / "p01.pddl"
     optimal_plan_path = tmp_path / "p01.plan"
@@ -97,4 +121,11 @@ def test_shuffle_meta_is_minimal(tmp_path: Path) -> None:
         "seed": 99,
         "problem_id": "p01",
         "variants": VARIANT_NAMES,
+        "variant_orders": {
+            "canonical": ["alpha", "beta", "gamma", "delta", "epsilon"],
+            "frequency": ["beta", "alpha", "gamma", "delta", "epsilon"],
+            "disp_1": ["delta", "beta", "alpha", "gamma", "epsilon"],
+            "disp_2": ["epsilon", "delta", "beta", "alpha", "gamma"],
+            "disp_3": ["epsilon", "delta", "gamma", "alpha", "beta"],
+        },
     }
