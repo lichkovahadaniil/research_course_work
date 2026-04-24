@@ -13,14 +13,18 @@ load_dotenv()
 
 
 MODEL_ALIASES = {
-    "grok-4.1-fast": "x-ai/grok-4.1-fast",
+    "gpt-5-mini": "openai/gpt-5-mini",
     "deepseek-v3.2": "deepseek/deepseek-v3.2",
 }
 MODEL_CONFIG = {
-    "x-ai/grok-4.1-fast": {
+    "openai/gpt-5-mini": {
         "max_tokens": None,
         "supports_reasoning": True,
         "reasoning_effort": "medium",
+        "provider": {
+            "order": ["OpenAI"],
+            "allow_fallbacks": False,
+        },
     },
     "deepseek/deepseek-v3.2": {
         "max_tokens": None,
@@ -73,7 +77,7 @@ def _read_text(path: str | Path) -> str:
 def call_openrouter(
     domain_path: str | Path,
     problem_path: str | Path,
-    model: str = "grok-4.1-fast",
+    model: str = "gpt-5-mini",
     reasoning_enabled: bool = True,
     fix_plan_format_enabled: bool = False,
 ) -> dict[str, object]:
