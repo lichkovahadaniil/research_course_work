@@ -6,7 +6,7 @@ Minimal local pipeline for the IPC 2023 `labyrinth` domain.
 
 - Domain: `labyrinth`
 - Problems: `p01`-`p20`
-- Models: `gpt-5-mini`, `deepseek-v3.2`
+- Models: `grok-4.1-fast`, `deepseek-v3.2`
 - Variants per problem:
   - `canonical`
   - `frequency`
@@ -33,12 +33,10 @@ python3 main.py prepare --force
 Run model jobs:
 
 ```bash
-python3 main.py models-run --models gpt-5-mini --orders frequency disp_3 --problems p01
-python3 main.py models-run --models gpt-5-mini deepseek-v3.2 --orders canonical frequency disp_3 --runs 5
+python3 main.py models-run --models grok-4.1-fast --orders frequency disp_3 --problems p01
+python3 main.py models-run --models grok-4.1-fast deepseek-v3.2 --orders canonical frequency disp_3 --runs 5
 python3 main.py models-run --models deepseek-v3.2 --orders canonical --problems p01 p05 --runs 4 --force
 ```
-
-For `gpt-5-mini`, the runtime resolves to `openai/gpt-5-mini`, pins the OpenRouter provider to `OpenAI`, and disables fallbacks.
 
 Build reports:
 

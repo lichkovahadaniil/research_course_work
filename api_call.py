@@ -13,18 +13,14 @@ load_dotenv()
 
 
 MODEL_ALIASES = {
-    "gpt-5-mini": "openai/gpt-5-mini",
+    "grok-4.1-fast": "x-ai/grok-4.1-fast",
     "deepseek-v3.2": "deepseek/deepseek-v3.2",
 }
 MODEL_CONFIG = {
-    "openai/gpt-5-mini": {
+    "x-ai/grok-4.1-fast": {
         "max_tokens": None,
         "supports_reasoning": True,
-        "reasoning_effort": "medium",
-        "provider": {
-            "order": ["OpenAI"],
-            "allow_fallbacks": False,
-        },
+        "reasoning_effort": "high",
     },
     "deepseek/deepseek-v3.2": {
         "max_tokens": None,
@@ -77,7 +73,7 @@ def _read_text(path: str | Path) -> str:
 def call_openrouter(
     domain_path: str | Path,
     problem_path: str | Path,
-    model: str = "gpt-5-mini",
+    model: str = "grok-4.1-fast",
     reasoning_enabled: bool = True,
     fix_plan_format_enabled: bool = False,
 ) -> dict[str, object]:
@@ -99,6 +95,9 @@ Rules:
 - One action per line.
 - No extra text.
 - No empty lines.
+- The plan MUST be complete.
+- Do NOT stop early.
+- Continue until the goal is achieved.
 - Stop immediately after the last action.
 
 Constraints:

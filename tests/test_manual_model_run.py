@@ -25,7 +25,7 @@ def test_refresh_aggregate_for_model_writes_mean_and_std(tmp_path: Path) -> None
     write_result(
         order_dir,
         1,
-        "gpt-5-mini",
+        "grok-4.1-fast",
         {
             "strict": {
                 "plan_length": 4,
@@ -47,7 +47,7 @@ def test_refresh_aggregate_for_model_writes_mean_and_std(tmp_path: Path) -> None
     write_result(
         order_dir,
         2,
-        "gpt-5-mini",
+        "grok-4.1-fast",
         {
             "strict": {
                 "plan_length": 6,
@@ -67,12 +67,12 @@ def test_refresh_aggregate_for_model_writes_mean_and_std(tmp_path: Path) -> None
         },
     )
 
-    refresh_aggregate_for_model(order_dir, "gpt-5-mini")
+    refresh_aggregate_for_model(order_dir, "grok-4.1-fast")
 
-    aggregate_path = order_dir / "aggregate" / f"{model_output_dir_name('gpt-5-mini')}.json"
+    aggregate_path = order_dir / "aggregate" / f"{model_output_dir_name('grok-4.1-fast')}.json"
     payload = json.loads(aggregate_path.read_text(encoding="utf-8"))
 
-    assert payload["model"] == "gpt-5-mini"
+    assert payload["model"] == "grok-4.1-fast"
     assert payload["run_count"] == 2
     assert payload["runs"] == [1, 2]
     assert payload["metrics"]["plan_length"]["count"] == 1

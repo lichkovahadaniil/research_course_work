@@ -29,7 +29,7 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
         "p01",
         "frequency",
         1,
-        "gpt-5-mini",
+        "grok-4.1-fast",
         {
             "strict": {
                 "plan_length": 4,
@@ -112,9 +112,9 @@ def test_summarize_records_groups_by_variant_and_model() -> None:
 
     records = pd.DataFrame(
         [
-            {"variant": "frequency", "model": "gpt-5-mini", "plan_length": 10},
-            {"variant": "frequency", "model": "gpt-5-mini", "plan_length": 14},
-            {"variant": "disp_1", "model": "gpt-5-mini", "plan_length": 8},
+            {"variant": "frequency", "model": "grok-4.1-fast", "plan_length": 10},
+            {"variant": "frequency", "model": "grok-4.1-fast", "plan_length": 14},
+            {"variant": "disp_1", "model": "grok-4.1-fast", "plan_length": 8},
         ]
     )
 
@@ -132,7 +132,7 @@ def test_build_reports_writes_problem_barplots_only(tmp_path, monkeypatch) -> No
         "p01",
         "frequency",
         1,
-        "gpt-5-mini",
+        "grok-4.1-fast",
         {
             "strict": {
                 "plan_length": 3,

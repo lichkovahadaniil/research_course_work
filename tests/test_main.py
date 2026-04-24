@@ -22,24 +22,24 @@ def test_build_run_commands_uses_requested_models_orders_and_runs(tmp_path: Path
     monkeypatch.chdir(tmp_path)
     create_prepared_problem(tmp_path, "labyrinth", "p01")
 
-    commands = build_run_commands(["p01"], ["gpt-5-mini"], ["frequency", "disp_3"], runs=2, force=False)
+    commands = build_run_commands(["p01"], ["grok-4.1-fast"], ["frequency", "disp_3"], runs=2, force=False)
 
     assert len(commands) == 4
     assert all("manual_model_run.py" in command[1] for command in commands)
-    assert {command[-1] for command in commands} == {"gpt-5-mini"}
+    assert {command[-1] for command in commands} == {"grok-4.1-fast"}
     assert {Path(command[9]).parent.name for command in commands} == {"1", "2"}
     assert {Path(command[9]).parent.parent.name for command in commands} == {"frequency", "disp_3"}
-    assert {Path(command[9]).name for command in commands} == {model_output_dir_name("gpt-5-mini")}
+    assert {Path(command[9]).name for command in commands} == {model_output_dir_name("grok-4.1-fast")}
 
 
 def test_build_run_commands_skips_existing_runs_without_force(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     create_prepared_problem(tmp_path, "labyrinth", "p01")
-    existing_dir = tmp_path / "materials" / "labyrinth" / "p01" / "canonical" / "1" / model_output_dir_name("gpt-5-mini")
+    existing_dir = tmp_path / "materials" / "labyrinth" / "p01" / "canonical" / "1" / model_output_dir_name("grok-4.1-fast")
     existing_dir.mkdir(parents=True, exist_ok=True)
     (existing_dir / "llm.plan").write_text("(a)\n", encoding="utf-8")
 
-    commands = build_run_commands(["p01"], ["gpt-5-mini"], ["canonical"], runs=4, force=False)
+    commands = build_run_commands(["p01"], ["grok-4.1-fast"], ["canonical"], runs=4, force=False)
 
     assert len(commands) == 3
     assert {Path(command[9]).parent.name for command in commands} == {"2", "3", "4"}
@@ -48,11 +48,11 @@ def test_build_run_commands_skips_existing_runs_without_force(tmp_path: Path, mo
 def test_build_run_commands_keeps_existing_runs_with_force(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     create_prepared_problem(tmp_path, "labyrinth", "p01")
-    existing_dir = tmp_path / "materials" / "labyrinth" / "p01" / "canonical" / "1" / model_output_dir_name("gpt-5-mini")
+    existing_dir = tmp_path / "materials" / "labyrinth" / "p01" / "canonical" / "1" / model_output_dir_name("grok-4.1-fast")
     existing_dir.mkdir(parents=True, exist_ok=True)
     (existing_dir / "llm.plan").write_text("(a)\n", encoding="utf-8")
 
-    commands = build_run_commands(["p01"], ["gpt-5-mini"], ["canonical"], runs=2, force=True)
+    commands = build_run_commands(["p01"], ["grok-4.1-fast"], ["canonical"], runs=2, force=True)
 
     assert len(commands) == 2
     assert all(command[-1] == "--force" for command in commands)
@@ -69,7 +69,7 @@ def test_run_models_executes_every_command(tmp_path: Path, monkeypatch) -> None:
         executed.append(command)
 
     monkeypatch.setattr("subprocess.run", fake_run)
-    run_models(["p03"], ["gpt-5-mini"], ["frequency", "disp_3"], runs=2)
+    run_models(["p03"], ["grok-4.1-fast"], ["frequency", "disp_3"], runs=2)
 
     assert len(executed) == 4
 
