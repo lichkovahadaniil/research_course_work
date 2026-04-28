@@ -1,10 +1,10 @@
 # research_course_work
 
-Minimal local pipeline for the IPC 2023 `labyrinth` domain.
+Minimal local pipeline for the generated `logistics` domain.
 
 ## Scope
 
-- Domain: `labyrinth`
+- Domain: `logistics`
 - Problems: `p01`-`p20`
 - Models: `grok-4.1-fast`, `deepseek-v3.2`
 - Variants per problem:
@@ -18,7 +18,7 @@ Minimal local pipeline for the IPC 2023 `labyrinth` domain.
 
 - Python 3
 - VAL on `PATH` as `validate`
-- IPC 2023 data under `ipc2023-dataset-main/opt`
+- Prepared logistics materials under `materials/logistics`
 - Packages from [requirements.txt](/Users/daniillickovaha/Documents/research/requirements.txt)
 
 ## Commands
@@ -26,6 +26,7 @@ Minimal local pipeline for the IPC 2023 `labyrinth` domain.
 Prepare base files and generate all variants:
 
 ```bash
+python3 main.py --force
 python3 main.py prepare
 python3 main.py prepare --force
 ```

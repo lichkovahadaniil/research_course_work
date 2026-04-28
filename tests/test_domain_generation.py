@@ -13,7 +13,7 @@ def create_variant_dirs(problem_dir: Path) -> None:
 
 
 def test_variants_are_not_up_to_date_for_legacy_metadata(tmp_path: Path) -> None:
-    problem_dir = tmp_path / "materials" / "labyrinth" / "p01"
+    problem_dir = tmp_path / "materials" / "logistics" / "p01"
     create_variant_dirs(problem_dir)
     (problem_dir / "shuffle_meta.json").write_text(
         json.dumps(
@@ -30,7 +30,7 @@ def test_variants_are_not_up_to_date_for_legacy_metadata(tmp_path: Path) -> None
 
 
 def test_variants_are_up_to_date_for_metadata_with_orders(tmp_path: Path) -> None:
-    problem_dir = tmp_path / "materials" / "labyrinth" / "p01"
+    problem_dir = tmp_path / "materials" / "logistics" / "p01"
     create_variant_dirs(problem_dir)
     (problem_dir / "shuffle_meta.json").write_text(
         json.dumps(

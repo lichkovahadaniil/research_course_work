@@ -51,6 +51,27 @@ def generate_paths(domains: list[str] | None = None, problems: list[str] | None 
         target_dir = Path("materials") / domain_name
         target_dir.mkdir(parents=True, exist_ok=True)
 
+        if not source_dir.exists():
+            required_paths = [target_dir / "domain.pddl"]
+            for problem_id in problem_ids:
+                problem_dir = target_dir / problem_id
+                required_paths.extend(
+                    [
+                        problem_dir / f"{problem_id}.pddl",
+                        problem_dir / f"{problem_id}.plan",
+                    ]
+                )
+
+            missing_paths = [path for path in required_paths if not path.exists()]
+            if missing_paths:
+                missing = "\n".join(str(path) for path in missing_paths[:10])
+                raise FileNotFoundError(
+                    f"missing prepared materials for domain '{domain_name}'. "
+                    "Expected existing files under materials/ because no IPC source "
+                    f"directory was found at {source_dir}.\n{missing}"
+                )
+            continue
+
         domain_target = target_dir / "domain.pddl"
         if force or not domain_target.exists():
             shutil.copy(source_dir / "domain.pddl", domain_target)

@@ -1,4 +1,4 @@
-DOMAIN_TYPES = ["labyrinth"]
+DOMAIN_TYPES = ["logistics"]
 PROBLEM_IDS = [f"p{index:02d}" for index in range(1, 21)]
 MODEL_NAMES = [
     "grok-4.1-fast",

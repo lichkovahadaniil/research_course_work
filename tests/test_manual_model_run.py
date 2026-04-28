@@ -21,7 +21,7 @@ def write_result(order_dir: Path, run_id: int, model: str, metrics: dict, respon
 
 
 def test_refresh_aggregate_for_model_writes_mean_and_std(tmp_path: Path) -> None:
-    order_dir = tmp_path / "materials" / "labyrinth" / "p01" / "frequency"
+    order_dir = tmp_path / "materials" / "logistics" / "p01" / "frequency"
     write_result(
         order_dir,
         1,

@@ -50,7 +50,7 @@ def build_run_commands(
             domain_path = order_dir / "domain.pddl"
             if not domain_path.exists():
                 raise FileNotFoundError(
-                    f"missing variant domain: {domain_path}. Run `python3 main.py prepare --force` first."
+                    f"missing variant domain: {domain_path}. Run `python3 main.py --force` first."
                 )
 
             for run_id in range(1, runs + 1):
@@ -127,7 +127,12 @@ def report() -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Minimal planning pipeline.")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="When no command is supplied, run the prepare step with force enabled.",
+    )
+    subparsers = parser.add_subparsers(dest="command")
 
     prepare_parser = subparsers.add_parser("prepare", help="Prepare materials and domain variants.")
     prepare_parser.add_argument("--force", action="store_true")
@@ -147,6 +152,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+
+    if args.command is None:
+        prepare_with_force(force=args.force)
+        return
 
     if args.command == "prepare":
         prepare_with_force(force=args.force)

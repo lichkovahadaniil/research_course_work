@@ -25,7 +25,7 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     write_result(
         tmp_path,
-        "labyrinth",
+        "logistics",
         "p01",
         "frequency",
         1,
@@ -50,7 +50,7 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
     )
     write_result(
         tmp_path,
-        "labyrinth",
+        "logistics",
         "p01",
         "disp_1",
         2,
@@ -74,7 +74,7 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
         },
     )
 
-    records = build_records(["labyrinth"], ["p01"])
+    records = build_records(["logistics"], ["p01"])
 
     assert set(records.columns) == {
         "domain",
@@ -128,7 +128,7 @@ def test_build_reports_writes_problem_barplots_only(tmp_path, monkeypatch) -> No
     monkeypatch.chdir(tmp_path)
     write_result(
         tmp_path,
-        "labyrinth",
+        "logistics",
         "p01",
         "frequency",
         1,
@@ -152,10 +152,10 @@ def test_build_reports_writes_problem_barplots_only(tmp_path, monkeypatch) -> No
         },
     )
 
-    build_reports(["labyrinth"], ["p01"])
+    build_reports(["logistics"], ["p01"])
 
-    assert (tmp_path / "materials" / "labyrinth" / "graph" / "p01" / "plan_length_barplot.png").exists()
+    assert (tmp_path / "materials" / "logistics" / "graph" / "p01" / "plan_length_barplot.png").exists()
     assert (
-        tmp_path / "materials" / "labyrinth" / "graph" / "p01" / "completion_token_breakdown_barplot.png"
+        tmp_path / "materials" / "logistics" / "graph" / "p01" / "completion_token_breakdown_barplot.png"
     ).exists()
-    assert not (tmp_path / "materials" / "labyrinth" / "graph" / "summary").exists()
+    assert not (tmp_path / "materials" / "logistics" / "graph" / "summary").exists()
