@@ -1,12 +1,18 @@
 import json
 
-from plot_metrics import build_records, build_reports, summarize_records
+from experiment_config import ProblemRef
+from plot_metrics import (
+    build_records,
+    build_reports,
+    summarize_problem_type_records,
+    summarize_records,
+)
 
 
-def write_result(root, domain, problem, variant, run_id, model, metrics, response_fields=None) -> None:
+def write_result(root, domain, task, problem, variant, run_id, model, metrics, response_fields=None) -> None:
     from manual_model_run import model_output_dir_name
 
-    result_dir = root / "materials" / domain / problem / variant / str(run_id) / model_output_dir_name(model)
+    result_dir = root / "materials" / domain / task / problem / variant / str(run_id) / model_output_dir_name(model)
     result_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "model": model,
@@ -26,8 +32,9 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
     write_result(
         tmp_path,
         "logistics",
-        "p01",
-        "frequency",
+        "alpha",
+        "p7",
+        "canonical",
         1,
         "grok-4.1-fast",
         {
@@ -51,10 +58,11 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
     write_result(
         tmp_path,
         "logistics",
-        "p01",
+        "alpha",
+        "p7",
         "disp_1",
         2,
-        "deepseek-v3.2",
+        "deepseek/deepseek-v4-flash",
         {
             "strict": {
                 "plan_length": None,
@@ -74,11 +82,13 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
         },
     )
 
-    records = build_records(["logistics"], ["p01"])
+    records = build_records(["logistics"], [ProblemRef("alpha", "p7")])
 
     assert set(records.columns) == {
         "domain",
         "problem",
+        "task",
+        "problem_type",
         "variant",
         "run",
         "model",
@@ -99,6 +109,8 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
     assert len(records) == 2
     reachable_row = records[records["run"] == 1].iloc[0]
     failed_row = records[records["run"] == 2].iloc[0]
+    assert reachable_row["task"] == "alpha"
+    assert reachable_row["problem_type"] == "full_53"
     assert reachable_row["plan_length"] == 4
     assert failed_row["plan_length"] != failed_row["plan_length"]
     assert failed_row["non_executable_failure"] == 1.0
@@ -112,8 +124,8 @@ def test_summarize_records_groups_by_variant_and_model() -> None:
 
     records = pd.DataFrame(
         [
-            {"variant": "frequency", "model": "grok-4.1-fast", "plan_length": 10},
-            {"variant": "frequency", "model": "grok-4.1-fast", "plan_length": 14},
+            {"variant": "canonical", "model": "grok-4.1-fast", "plan_length": 10},
+            {"variant": "canonical", "model": "grok-4.1-fast", "plan_length": 14},
             {"variant": "disp_1", "model": "grok-4.1-fast", "plan_length": 8},
         ]
     )
@@ -121,16 +133,66 @@ def test_summarize_records_groups_by_variant_and_model() -> None:
     summary = summarize_records(records, "plan_length")
 
     assert len(summary) == 2
-    assert summary.loc[summary["variant"] == "frequency", "plan_length"].iloc[0] == 12
+    assert summary.loc[summary["variant"] == "canonical", "plan_length"].iloc[0] == 12
 
 
-def test_build_reports_writes_problem_barplots_only(tmp_path, monkeypatch) -> None:
+def test_summarize_problem_type_records_keeps_orders_separate() -> None:
+    import pandas as pd
+
+    records = pd.DataFrame(
+        [
+            {
+                "problem_type": "full_53",
+                "variant": "canonical",
+                "model": "grok-4.1-fast",
+                "plan_length": 10,
+            },
+            {
+                "problem_type": "full_53",
+                "variant": "canonical",
+                "model": "grok-4.1-fast",
+                "plan_length": 14,
+            },
+            {
+                "problem_type": "full_53",
+                "variant": "disp_1",
+                "model": "grok-4.1-fast",
+                "plan_length": 30,
+            },
+            {
+                "problem_type": "full_53",
+                "variant": "canonical",
+                "model": "deepseek/deepseek-v4-flash",
+                "plan_length": 18,
+            },
+        ]
+    )
+
+    summary = summarize_problem_type_records(records, "plan_length")
+
+    assert len(summary) == 3
+    canonical_grok = summary[
+        (summary["problem_type"] == "full_53")
+        & (summary["variant"] == "canonical")
+        & (summary["model"] == "grok-4.1-fast")
+    ]
+    disp_grok = summary[
+        (summary["problem_type"] == "full_53")
+        & (summary["variant"] == "disp_1")
+        & (summary["model"] == "grok-4.1-fast")
+    ]
+    assert canonical_grok["plan_length"].iloc[0] == 12
+    assert disp_grok["plan_length"].iloc[0] == 30
+
+
+def test_build_reports_writes_problem_and_problem_type_barplots(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     write_result(
         tmp_path,
         "logistics",
-        "p01",
-        "frequency",
+        "alpha",
+        "p7",
+        "canonical",
         1,
         "grok-4.1-fast",
         {
@@ -152,10 +214,34 @@ def test_build_reports_writes_problem_barplots_only(tmp_path, monkeypatch) -> No
         },
     )
 
-    build_reports(["logistics"], ["p01"])
+    build_reports(["logistics"], [ProblemRef("alpha", "p7")])
 
-    assert (tmp_path / "materials" / "logistics" / "graph" / "p01" / "plan_length_barplot.png").exists()
     assert (
-        tmp_path / "materials" / "logistics" / "graph" / "p01" / "completion_token_breakdown_barplot.png"
+        tmp_path / "materials" / "logistics" / "graph" / "alpha" / "p7" / "plan_length_barplot.png"
     ).exists()
-    assert not (tmp_path / "materials" / "logistics" / "graph" / "summary").exists()
+    assert (
+        tmp_path
+        / "materials"
+        / "logistics"
+        / "graph"
+        / "alpha"
+        / "p7"
+        / "completion_token_breakdown_barplot.png"
+    ).exists()
+    assert (
+        tmp_path
+        / "materials"
+        / "logistics"
+        / "graph"
+        / "by_problem_type"
+        / "plan_length_by_problem_type_and_order_barplot.png"
+    ).exists()
+    assert (
+        tmp_path
+        / "materials"
+        / "logistics"
+        / "graph"
+        / "by_problem_type"
+        / "full_53"
+        / "plan_length_barplot.png"
+    ).exists()

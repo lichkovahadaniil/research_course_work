@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from domain_generation import generate_paths, process_domains
-from experiment_config import DOMAIN_TYPES, MODEL_NAMES, PROBLEM_IDS
+from experiment_config import DOMAIN_TYPES, MODEL_NAMES, PROBLEM_IDS, PROBLEM_REFS, TASK_NAMES, ProblemRef
 from manual_model_run import model_output_dir_name
 from shuffler import VARIANT_NAMES
 
@@ -18,17 +18,64 @@ def normalize_problem_id(problem_id: str) -> str:
         raise ValueError("problem id cannot be empty")
     if token.startswith("p"):
         token = token[1:]
-    return f"p{int(token):02d}"
+    normalized = f"p{int(token)}"
+    if normalized not in PROBLEM_IDS:
+        raise ValueError(f"unknown problem id: {problem_id}")
+    return normalized
 
 
-def normalize_problem_ids(problem_ids: list[str] | None) -> list[str]:
-    if not problem_ids:
-        return PROBLEM_IDS[:]
-    return [normalize_problem_id(problem_id) for problem_id in problem_ids]
+def normalize_problem_refs(tokens: list[str] | None) -> list[ProblemRef]:
+    if not tokens:
+        return PROBLEM_REFS[:]
+
+    selected: list[ProblemRef] = []
+    current_task: str | None = None
+    current_task_problem_count = 0
+
+    def add_all_for_current_task() -> None:
+        if current_task is None:
+            return
+        selected.extend(ProblemRef(current_task, problem_id) for problem_id in PROBLEM_IDS)
+
+    for raw_token in tokens:
+        token = raw_token.strip().lower()
+        if not token:
+            continue
+
+        if token in TASK_NAMES:
+            if current_task is not None and current_task_problem_count == 0:
+                add_all_for_current_task()
+            current_task = token
+            current_task_problem_count = 0
+            continue
+
+        if current_task is None:
+            raise ValueError(
+                f"problem id '{raw_token}' must follow a task name: "
+                f"{', '.join(TASK_NAMES)}"
+            )
+        selected.append(ProblemRef(current_task, normalize_problem_id(token)))
+        current_task_problem_count += 1
+
+    if current_task is not None and current_task_problem_count == 0:
+        add_all_for_current_task()
+
+    deduplicated: list[ProblemRef] = []
+    seen: set[ProblemRef] = set()
+    for problem_ref in selected:
+        if problem_ref in seen:
+            continue
+        deduplicated.append(problem_ref)
+        seen.add(problem_ref)
+    return deduplicated
+
+
+def normalize_problem_ids(tokens: list[str] | None) -> list[ProblemRef]:
+    return normalize_problem_refs(tokens)
 
 
 def build_run_commands(
-    problem_ids: list[str],
+    problem_refs: list[ProblemRef],
     models: list[str],
     orders: list[str],
     runs: int,
@@ -40,10 +87,10 @@ def build_run_commands(
     commands: list[list[str]] = []
     script_path = Path(__file__).with_name("manual_model_run.py")
 
-    for problem_id in problem_ids:
-        problem_dir = Path("materials") / DEFAULT_DOMAIN / problem_id
-        problem_path = problem_dir / f"{problem_id}.pddl"
-        optimal_plan_path = problem_dir / f"{problem_id}.plan"
+    for problem_ref in problem_refs:
+        problem_dir = Path("materials") / DEFAULT_DOMAIN / problem_ref.task / problem_ref.problem
+        problem_path = problem_dir / f"{problem_ref.problem}.pddl"
+        optimal_plan_path = problem_dir / f"{problem_ref.problem}.plan"
 
         for order_name in orders:
             order_dir = problem_dir / order_name
@@ -83,14 +130,14 @@ def build_run_commands(
 
 
 def run_models(
-    problem_ids: list[str],
+    problem_refs: list[ProblemRef],
     models: list[str],
     orders: list[str],
     runs: int,
     jobs: int = 1,
     force: bool = False,
 ) -> None:
-    commands = build_run_commands(problem_ids, models, orders, runs, force)
+    commands = build_run_commands(problem_refs, models, orders, runs, force)
     total = len(commands)
     if total == 0:
         print("Nothing to run.")
@@ -115,14 +162,14 @@ def run_models(
 
 
 def prepare_with_force(force: bool) -> None:
-    generate_paths(DOMAIN_TYPES, PROBLEM_IDS, force=force)
-    process_domains(DOMAIN_TYPES, PROBLEM_IDS, force=force)
+    generate_paths(DOMAIN_TYPES, PROBLEM_REFS, force=force)
+    process_domains(DOMAIN_TYPES, PROBLEM_REFS, force=force)
 
 
 def report() -> None:
     from plot_metrics import build_reports
 
-    build_reports(DOMAIN_TYPES, PROBLEM_IDS)
+    build_reports(DOMAIN_TYPES, PROBLEM_REFS)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -139,7 +186,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     models_run_parser = subparsers.add_parser("models-run", help="Run all requested model jobs.")
     models_run_parser.add_argument("--models", nargs="+", choices=MODEL_NAMES, required=True)
-    models_run_parser.add_argument("--problems", nargs="*")
+    models_run_parser.add_argument(
+        "--problems",
+        nargs="*",
+        metavar="PROBLEM_SELECTION",
+        help="Task-scoped problem list, e.g. `north p1 p2 alpha p1`; task alone selects all p1-p7.",
+    )
     models_run_parser.add_argument("--orders", nargs="+", choices=VARIANT_NAMES, required=True)
     models_run_parser.add_argument("--runs", type=int, default=1)
     models_run_parser.add_argument("--jobs", type=int, default=1, help="Number of parallel processes (default: 1)")
@@ -164,8 +216,12 @@ def main() -> None:
     if args.command == "models-run":
         if args.runs < 1:
             parser.error("--runs must be at least 1")
+        try:
+            problem_refs = normalize_problem_refs(args.problems)
+        except ValueError as exc:
+            parser.error(str(exc))
         run_models(
-            normalize_problem_ids(args.problems),
+            problem_refs,
             args.models,
             args.orders,
             args.runs,

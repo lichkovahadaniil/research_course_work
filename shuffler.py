@@ -5,7 +5,6 @@ from pathlib import Path
 
 VARIANT_NAMES = [
     "canonical",
-    "frequency",
     "disp_1",
     "disp_2",
     "disp_3",
@@ -16,7 +15,6 @@ DISPERSION_LEVELS = {
 }
 
 ACTION_PATTERN = re.compile(r"\(\s*:action\s+([^\s)]+)", re.IGNORECASE)
-PLAN_ACTION_PATTERN = re.compile(r"^\s*\(([\w-]+)", re.MULTILINE)
 
 
 def _extract_action_blocks(domain_text: str) -> tuple[str, dict[str, str], str, list[str]]:
@@ -64,19 +62,6 @@ def _extract_action_blocks(domain_text: str) -> tuple[str, dict[str, str], str, 
     footer_start = domain_text.rfind(last_block) + len(last_block)
     footer = domain_text[footer_start:].lstrip("\n")
     return header, action_blocks, footer, action_order
-
-
-def _extract_frequency_order(plan_text: str, action_order: list[str]) -> list[str]:
-    counts = {action: 0 for action in action_order}
-    for action_name in PLAN_ACTION_PATTERN.findall(plan_text):
-        if action_name in counts:
-            counts[action_name] += 1
-
-    original_positions = {action: index for index, action in enumerate(action_order)}
-    return sorted(
-        action_order,
-        key=lambda action: (-counts[action], original_positions[action]),
-    )
 
 
 def build_even_inversion_vector(n: int, inversions: int) -> list[int]:
@@ -135,27 +120,26 @@ def kendall_tau_distance(reference_order: list[str], candidate_order: list[str])
     return distance
 
 
-def _build_dispersion_order(frequency_order: list[str], numerator: int, denominator: int) -> list[str]:
-    reverse_order = list(reversed(frequency_order))
-    max_distance = kendall_tau_distance(frequency_order, reverse_order)
+def _build_dispersion_order(canonical_order: list[str], numerator: int, denominator: int) -> list[str]:
+    reverse_order = list(reversed(canonical_order))
+    max_distance = kendall_tau_distance(canonical_order, reverse_order)
     target_distance = _round_half_up_fraction(max_distance, numerator, denominator)
-    inversion_vector = build_even_inversion_vector(len(frequency_order), target_distance)
-    dispersion_order = _order_from_inversion_vector(frequency_order, inversion_vector)
+    inversion_vector = build_even_inversion_vector(len(canonical_order), target_distance)
+    dispersion_order = _order_from_inversion_vector(canonical_order, inversion_vector)
 
-    if kendall_tau_distance(frequency_order, dispersion_order) != target_distance:
+    if kendall_tau_distance(canonical_order, dispersion_order) != target_distance:
         raise ValueError("constructed dispersion order does not match target Kendall tau distance")
 
     return dispersion_order
 
 
-def _build_variants(action_order: list[str], frequency_order: list[str]) -> dict[str, list[str]]:
+def _build_variants(action_order: list[str]) -> dict[str, list[str]]:
     variants = {
         "canonical": action_order[:],
-        "frequency": frequency_order[:],
     }
     for variant_name, (numerator, denominator) in DISPERSION_LEVELS.items():
-        variants[variant_name] = _build_dispersion_order(frequency_order, numerator, denominator)
-    variants["disp_3"] = list(reversed(frequency_order))
+        variants[variant_name] = _build_dispersion_order(action_order, numerator, denominator)
+    variants["disp_3"] = list(reversed(action_order))
     return variants
 
 
@@ -182,6 +166,7 @@ def shuffle(
     save_dir: str | Path,
     seed: int = 52,
     problem_id: str | None = None,
+    task_name: str | None = None,
 ) -> None:
     domain_path = Path(domain_path)
     problem_path = Path(problem_path)
@@ -190,11 +175,9 @@ def shuffle(
     save_dir.mkdir(parents=True, exist_ok=True)
 
     domain_text = domain_path.read_text(encoding="utf-8")
-    plan_text = optimal_plan_path.read_text(encoding="utf-8")
     header, action_blocks, footer, action_order = _extract_action_blocks(domain_text)
-    frequency_order = _extract_frequency_order(plan_text, action_order)
 
-    variants = _build_variants(action_order, frequency_order)
+    variants = _build_variants(action_order)
 
     for variant_name, variant_order in variants.items():
         _write_domain_variant(header, action_blocks, footer, variant_order, save_dir / variant_name)
@@ -202,6 +185,7 @@ def shuffle(
     metadata = {
         "seed": seed,
         "problem_id": problem_id or problem_path.stem,
+        "task": task_name,
         "variants": list(variants),
         "variant_orders": variants,
     }

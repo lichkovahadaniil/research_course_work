@@ -2,12 +2,21 @@ import json
 import shutil
 from pathlib import Path
 
-from experiment_config import DOMAIN_TYPES, PROBLEM_IDS
+from experiment_config import DOMAIN_TYPES, PROBLEM_REFS, ProblemRef
 from shuffler import VARIANT_NAMES, shuffle
 
 
-def _normalize_problem_ids(problems: list[str] | None = None) -> list[str]:
-    return PROBLEM_IDS[:] if problems is None else sorted(set(problems))
+def _normalize_problem_refs(problems: list[ProblemRef] | None = None) -> list[ProblemRef]:
+    if problems is None:
+        return PROBLEM_REFS[:]
+    deduplicated: list[ProblemRef] = []
+    seen: set[ProblemRef] = set()
+    for problem_ref in problems:
+        if problem_ref in seen:
+            continue
+        deduplicated.append(problem_ref)
+        seen.add(problem_ref)
+    return deduplicated
 
 
 def _cleanup_problem_variants(problem_dir: Path) -> None:
@@ -18,7 +27,7 @@ def _cleanup_problem_variants(problem_dir: Path) -> None:
             shutil.rmtree(child)
 
 
-def _variants_are_up_to_date(problem_dir: Path) -> bool:
+def _variants_are_up_to_date(problem_dir: Path, problem_ref: ProblemRef | None = None) -> bool:
     metadata_path = problem_dir / "shuffle_meta.json"
     if not metadata_path.exists():
         return False
@@ -30,6 +39,11 @@ def _variants_are_up_to_date(problem_dir: Path) -> bool:
 
     if metadata.get("variants") != VARIANT_NAMES:
         return False
+    if problem_ref is not None:
+        if metadata.get("task") != problem_ref.task:
+            return False
+        if metadata.get("problem_id") != problem_ref.problem:
+            return False
 
     variant_orders = metadata.get("variant_orders")
     if not isinstance(variant_orders, dict):
@@ -42,9 +56,13 @@ def _variants_are_up_to_date(problem_dir: Path) -> bool:
     return all((problem_dir / variant_name / "domain.pddl").exists() for variant_name in VARIANT_NAMES)
 
 
-def generate_paths(domains: list[str] | None = None, problems: list[str] | None = None, force: bool = False) -> None:
+def generate_paths(
+    domains: list[str] | None = None,
+    problems: list[ProblemRef] | None = None,
+    force: bool = False,
+) -> None:
     domains = DOMAIN_TYPES[:] if domains is None else domains
-    problem_ids = _normalize_problem_ids(problems)
+    problem_refs = _normalize_problem_refs(problems)
 
     for domain_name in domains:
         source_dir = Path("ipc2023-dataset-main/opt") / domain_name
@@ -53,12 +71,12 @@ def generate_paths(domains: list[str] | None = None, problems: list[str] | None 
 
         if not source_dir.exists():
             required_paths = [target_dir / "domain.pddl"]
-            for problem_id in problem_ids:
-                problem_dir = target_dir / problem_id
+            for problem_ref in problem_refs:
+                problem_dir = target_dir / problem_ref.task / problem_ref.problem
                 required_paths.extend(
                     [
-                        problem_dir / f"{problem_id}.pddl",
-                        problem_dir / f"{problem_id}.plan",
+                        problem_dir / f"{problem_ref.problem}.pddl",
+                        problem_dir / f"{problem_ref.problem}.plan",
                     ]
                 )
 
@@ -76,46 +94,47 @@ def generate_paths(domains: list[str] | None = None, problems: list[str] | None 
         if force or not domain_target.exists():
             shutil.copy(source_dir / "domain.pddl", domain_target)
 
-        for problem_id in problem_ids:
-            problem_dir = target_dir / problem_id
+        for problem_ref in problem_refs:
+            problem_dir = target_dir / problem_ref.task / problem_ref.problem
             problem_dir.mkdir(parents=True, exist_ok=True)
 
             for suffix in ("pddl", "plan"):
-                source_path = source_dir / f"{problem_id}.{suffix}"
-                target_path = problem_dir / f"{problem_id}.{suffix}"
+                source_path = source_dir / problem_ref.task / f"{problem_ref.problem}.{suffix}"
+                target_path = problem_dir / f"{problem_ref.problem}.{suffix}"
                 if force or not target_path.exists():
                     shutil.copy(source_path, target_path)
 
 
 def process_domains(
     domains: list[str] | None = None,
-    problems: list[str] | None = None,
+    problems: list[ProblemRef] | None = None,
     force: bool = False,
     shuffle_seed: int = 52,
 ) -> None:
     domains = DOMAIN_TYPES[:] if domains is None else domains
-    problem_ids = _normalize_problem_ids(problems)
+    problem_refs = _normalize_problem_refs(problems)
 
     for domain_name in domains:
         domain_dir = Path("materials") / domain_name
         domain_path = domain_dir / "domain.pddl"
 
-        for problem_id in problem_ids:
-            problem_dir = domain_dir / problem_id
+        for problem_ref in problem_refs:
+            problem_dir = domain_dir / problem_ref.task / problem_ref.problem
             if force:
                 _cleanup_problem_variants(problem_dir)
                 shuffle_meta_path = problem_dir / "shuffle_meta.json"
                 if shuffle_meta_path.exists():
                     shuffle_meta_path.unlink()
 
-            if not force and _variants_are_up_to_date(problem_dir):
+            if not force and _variants_are_up_to_date(problem_dir, problem_ref):
                 continue
 
             shuffle(
                 domain_path=domain_path,
-                problem_path=problem_dir / f"{problem_id}.pddl",
-                optimal_plan_path=problem_dir / f"{problem_id}.plan",
+                problem_path=problem_dir / f"{problem_ref.problem}.pddl",
+                optimal_plan_path=problem_dir / f"{problem_ref.problem}.plan",
                 save_dir=problem_dir,
                 seed=shuffle_seed,
-                problem_id=problem_id,
+                problem_id=problem_ref.problem,
+                task_name=problem_ref.task,
             )

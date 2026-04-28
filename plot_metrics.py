@@ -12,7 +12,13 @@ import pandas as pd
 from matplotlib.patches import Patch
 from matplotlib.ticker import PercentFormatter
 
-from experiment_config import MODEL_NAMES
+from experiment_config import (
+    MODEL_NAMES,
+    PROBLEM_TYPE_BY_ID,
+    PROBLEM_TYPE_LABELS,
+    PROBLEM_TYPE_ORDER,
+    ProblemRef,
+)
 from manual_model_run import model_output_dir_name
 from shuffler import VARIANT_NAMES
 from token_usage import build_token_usage_from_payload
@@ -25,6 +31,8 @@ import matplotlib.pyplot as plt
 RECORD_COLUMNS = [
     "domain",
     "problem",
+    "task",
+    "problem_type",
     "variant",
     "run",
     "model",
@@ -107,6 +115,7 @@ def _load_result(path: Path) -> dict:
 def _build_record(
     *,
     domain_name: str,
+    task_name: str,
     problem_id: str,
     variant_name: str,
     run_id: int | None,
@@ -124,6 +133,8 @@ def _build_record(
     return {
         "domain": domain_name,
         "problem": problem_id,
+        "task": task_name,
+        "problem_type": PROBLEM_TYPE_BY_ID.get(problem_id, "unknown"),
         "variant": variant_name,
         "run": run_id,
         "model": model_name,
@@ -151,7 +162,7 @@ def _variant_run_dirs(variant_dir: Path) -> list[Path]:
         key=lambda child: int(child.name),
     )
 
-MODERN_COLORS = ["#348ABD", "#E24A33"]
+MODERN_COLORS = ["#348ABD", "#E24A33", "#8EBA42"]
 
 def _apply_modern_style(ax):
     """Делает график чистым и минималистичным."""
@@ -184,12 +195,12 @@ def _add_value_labels(ax, is_rate: bool):
                     fontsize=9,
                     color='#444444')
             
-def build_records(domains: list[str], problem_ids: list[str]) -> pd.DataFrame:
+def build_records(domains: list[str], problem_refs: list[ProblemRef]) -> pd.DataFrame:
     records: list[dict] = []
 
     for domain_name in domains:
-        for problem_id in problem_ids:
-            problem_dir = Path("materials") / domain_name / problem_id
+        for problem_ref in problem_refs:
+            problem_dir = Path("materials") / domain_name / problem_ref.task / problem_ref.problem
             for variant_name in VARIANT_NAMES:
                 variant_dir = problem_dir / variant_name
                 run_dirs = _variant_run_dirs(variant_dir)
@@ -203,7 +214,8 @@ def build_records(domains: list[str], problem_ids: list[str]) -> pd.DataFrame:
                             records.append(
                                 _build_record(
                                     domain_name=domain_name,
-                                    problem_id=problem_id,
+                                    task_name=problem_ref.task,
+                                    problem_id=problem_ref.problem,
                                     variant_name=variant_name,
                                     run_id=int(run_dir.name),
                                     model_name=model_name,
@@ -218,7 +230,8 @@ def build_records(domains: list[str], problem_ids: list[str]) -> pd.DataFrame:
                     records.append(
                         _build_record(
                             domain_name=domain_name,
-                            problem_id=problem_id,
+                            task_name=problem_ref.task,
+                            problem_id=problem_ref.problem,
                             variant_name=variant_name,
                             run_id=None,
                             model_name=model_name,
@@ -236,6 +249,17 @@ def summarize_records(records: pd.DataFrame, metric_slug: str) -> pd.DataFrame:
         records.groupby(["variant", "model"], as_index=False)[metric_slug]
         .mean()
         .sort_values(["variant", "model"])
+        .reset_index(drop=True)
+    )
+
+
+def summarize_problem_type_records(records: pd.DataFrame, metric_slug: str) -> pd.DataFrame:
+    if records.empty:
+        return pd.DataFrame(columns=["problem_type", "variant", "model", metric_slug])
+    return (
+        records.groupby(["problem_type", "variant", "model"], as_index=False)[metric_slug]
+        .mean()
+        .sort_values(["problem_type", "variant", "model"])
         .reset_index(drop=True)
     )
 
@@ -316,6 +340,136 @@ def _plot_problem_variant_bar(frame: pd.DataFrame, metric: dict, output_path: Pa
     plt.tight_layout()
     
     plt.savefig(output_path, dpi=300, bbox_inches="tight") # dpi=300 для высокой четкости
+    plt.close()
+
+
+def _plot_problem_type_bar(frame: pd.DataFrame, metric: dict, output_path: Path, title: str) -> None:
+    if frame.empty:
+        return
+
+    summary = summarize_problem_type_records(frame, metric["slug"])
+    if summary.empty:
+        return
+
+    summary_lookup = {
+        (row.problem_type, row.variant, row.model): getattr(row, metric["slug"])
+        for row in summary.itertuples(index=False)
+    }
+    clusters: list[tuple[str, str]] = [
+        (problem_type, variant_name)
+        for problem_type in PROBLEM_TYPE_ORDER
+        for variant_name in VARIANT_NAMES
+    ]
+    cluster_positions: list[float] = []
+    type_centers: list[float] = []
+    position = 0.0
+    for problem_type in PROBLEM_TYPE_ORDER:
+        start_position = position
+        for variant_name in VARIANT_NAMES:
+            cluster_positions.append(position)
+            position += 1.0
+        type_centers.append((start_position + position - 1.0) / 2)
+        position += 0.75
+
+    fig, ax = plt.subplots(figsize=(24, 7))
+    width = 0.78 / max(len(MODEL_NAMES), 1)
+    max_height = 0.0
+    for model_index, model_name in enumerate(MODEL_NAMES):
+        color = MODERN_COLORS[model_index % len(MODERN_COLORS)]
+        offset = (model_index - (len(MODEL_NAMES) - 1) / 2) * width
+        values = [
+            summary_lookup.get((problem_type, variant_name, model_name), float("nan"))
+            for problem_type, variant_name in clusters
+        ]
+        finite_values = [value for value in values if math.isfinite(value)]
+        if finite_values:
+            max_height = max(max_height, max(finite_values))
+        ax.bar(
+            [cluster_position + offset for cluster_position in cluster_positions],
+            values,
+            width=width * 0.92,
+            color=color,
+            edgecolor="none",
+            label=model_name,
+        )
+
+    ax.set_title(title, pad=20, fontsize=14, fontweight="bold", color="#333333")
+    ax.set_ylabel(f"Average {metric['title']}", fontsize=11, color="#555555")
+    ax.set_xlabel("Problem type / order", fontsize=11, color="#555555")
+    ax.set_xticks(cluster_positions)
+    ax.set_xticklabels([variant_name for _, variant_name in clusters], rotation=45, ha="right")
+
+    for boundary_index in range(1, len(PROBLEM_TYPE_ORDER)):
+        boundary_position = boundary_index * len(VARIANT_NAMES) + (boundary_index - 1) * 0.75 - 0.125
+        ax.axvline(boundary_position, color="#DDDDDD", linewidth=1.0)
+    for center, problem_type in zip(type_centers, PROBLEM_TYPE_ORDER):
+        ax.text(
+            center,
+            -0.22,
+            PROBLEM_TYPE_LABELS.get(problem_type, problem_type),
+            transform=ax.get_xaxis_transform(),
+            ha="center",
+            va="top",
+            fontsize=9,
+            color="#333333",
+            fontweight="bold",
+        )
+
+    _apply_modern_style(ax)
+    ax.legend(title="Models", bbox_to_anchor=(1.02, 1), loc="upper left", frameon=False, title_fontsize="12")
+
+    if metric["rate"]:
+        ax.set_ylim(0, 1.15)
+        ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
+    else:
+        ax.set_ylim(0, max_height * 1.15 if max_height > 0 else 1.0)
+
+    plt.yticks(color="#333333")
+    fig.subplots_adjust(bottom=0.28, right=0.84)
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_single_problem_type_bar(
+    frame: pd.DataFrame,
+    metric: dict,
+    output_path: Path,
+    title: str,
+) -> None:
+    if frame.empty:
+        return
+
+    pivot = (
+        summarize_records(frame, metric["slug"])
+        .pivot(index="variant", columns="model", values=metric["slug"])
+        .reindex(index=VARIANT_NAMES, columns=MODEL_NAMES)
+    )
+    ax = pivot.plot(
+        kind="bar",
+        width=0.8,
+        figsize=(10, 5.5),
+        color=MODERN_COLORS,
+        edgecolor="none",
+    )
+
+    ax.set_title(title, pad=18, fontsize=13, fontweight="bold", color="#333333")
+    ax.set_ylabel(f"Average {metric['title']}", fontsize=11, color="#555555")
+    ax.set_xlabel("Order", fontsize=11, color="#555555")
+
+    _apply_modern_style(ax)
+    _add_value_labels(ax, is_rate=metric["rate"])
+
+    if metric["rate"]:
+        ax.set_ylim(0, 1.15)
+        ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
+    else:
+        ax.set_ylim(0, ax.get_ylim()[1] * 1.15)
+
+    ax.legend(title="Models", bbox_to_anchor=(1.02, 1), loc="upper left", frameon=False, title_fontsize="12")
+    plt.xticks(rotation=0, color="#333333")
+    plt.yticks(color="#333333")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
 
 
@@ -455,8 +609,8 @@ def _plot_problem_token_breakdown(frame: pd.DataFrame, output_path: Path, title:
     plt.close(fig)
 
 
-def build_reports(domains: list[str], problem_ids: list[str]) -> None:
-    all_records = build_records(domains, problem_ids)
+def build_reports(domains: list[str], problem_refs: list[ProblemRef]) -> None:
+    all_records = build_records(domains, problem_refs)
 
     for domain_name in domains:
         domain_records = all_records[all_records["domain"] == domain_name].copy()
@@ -465,13 +619,17 @@ def build_reports(domains: list[str], problem_ids: list[str]) -> None:
             shutil.rmtree(graph_dir)
         graph_dir.mkdir(parents=True, exist_ok=True)
 
-        for problem_id in problem_ids:
-            (graph_dir / problem_id).mkdir(parents=True, exist_ok=True)
-        for problem_id in problem_ids:
-            problem_records = domain_records[domain_records["problem"] == problem_id].copy()
-            problem_dir = graph_dir / problem_id
+        for problem_ref in problem_refs:
+            (graph_dir / problem_ref.task / problem_ref.problem).mkdir(parents=True, exist_ok=True)
+        for problem_ref in problem_refs:
+            problem_records = domain_records[
+                (domain_records["task"] == problem_ref.task)
+                & (domain_records["problem"] == problem_ref.problem)
+            ].copy()
+            problem_dir = graph_dir / problem_ref.task / problem_ref.problem
             if problem_records.empty:
                 continue
+            problem_label = problem_ref.label
 
             for metric in METRICS:
                 metric_records = _metric_subset(problem_records, metric)
@@ -480,7 +638,7 @@ def build_reports(domains: list[str], problem_ids: list[str]) -> None:
                     metric_records,
                     metric,
                     problem_dir / f"{metric['slug']}_barplot.png",
-                    f"{_metric_title(metric, coverage_ratio)} by variant - {problem_id}",
+                    f"{_metric_title(metric, coverage_ratio)} by variant - {problem_label}",
                 )
 
             token_records = _token_breakdown_subset(problem_records)
@@ -488,5 +646,40 @@ def build_reports(domains: list[str], problem_ids: list[str]) -> None:
             _plot_problem_token_breakdown(
                 token_records,
                 problem_dir / "completion_token_breakdown_barplot.png",
-                f"{_token_breakdown_title(token_coverage_ratio)} by variant - {problem_id}",
+                f"{_token_breakdown_title(token_coverage_ratio)} by variant - {problem_label}",
             )
+
+        type_graph_dir = graph_dir / "by_problem_type"
+        type_graph_dir.mkdir(parents=True, exist_ok=True)
+        for problem_type in PROBLEM_TYPE_ORDER:
+            (type_graph_dir / problem_type).mkdir(parents=True, exist_ok=True)
+        if domain_records.empty:
+            continue
+
+        for metric in METRICS:
+            metric_records = _metric_subset(domain_records, metric)
+            if metric_records.empty:
+                continue
+
+            coverage_ratio = len(metric_records) / len(domain_records)
+            _plot_problem_type_bar(
+                metric_records,
+                metric,
+                type_graph_dir / f"{metric['slug']}_by_problem_type_and_order_barplot.png",
+                f"{_metric_title(metric, coverage_ratio)} by problem type and order",
+            )
+
+            for problem_type in PROBLEM_TYPE_ORDER:
+                type_records = metric_records[metric_records["problem_type"] == problem_type].copy()
+                if type_records.empty:
+                    continue
+                type_all_records = domain_records[domain_records["problem_type"] == problem_type]
+                type_coverage_ratio = len(type_records) / len(type_all_records) if len(type_all_records) else 0.0
+                single_type_dir = type_graph_dir / problem_type
+                single_type_dir.mkdir(parents=True, exist_ok=True)
+                _plot_single_problem_type_bar(
+                    type_records,
+                    metric,
+                    single_type_dir / f"{metric['slug']}_barplot.png",
+                    f"{_metric_title(metric, type_coverage_ratio)} - {PROBLEM_TYPE_LABELS.get(problem_type, problem_type)}",
+                )

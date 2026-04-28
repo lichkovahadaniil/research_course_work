@@ -14,7 +14,8 @@ load_dotenv()
 
 MODEL_ALIASES = {
     "grok-4.1-fast": "x-ai/grok-4.1-fast",
-    "deepseek-v3.2": "deepseek/deepseek-v3.2",
+    "deepseek-v4-flash": "deepseek/deepseek-v4-flash",
+    "glm-4.7-flash": "z-ai/glm-4.7-flash",
 }
 MODEL_CONFIG = {
     "x-ai/grok-4.1-fast": {
@@ -22,16 +23,27 @@ MODEL_CONFIG = {
         "supports_reasoning": True,
         "reasoning_effort": "high",
     },
-    "deepseek/deepseek-v3.2": {
+    "deepseek/deepseek-v4-flash": {
         "max_tokens": None,
         "supports_reasoning": True,
-        "reasoning_effort": "medium",
+        "reasoning_effort": "high",
         "temperature": 1.0,
-        "top_p": 0.95,
+        "top_p": 1.0,
         "provider": {
             "order": ["Novita"],
             "allow_fallbacks": False,
-            "quantizations": ["fp8"],
+        },
+    },
+    "z-ai/glm-4.7-flash": {
+        "max_tokens": None,
+        "supports_reasoning": True,
+        "reasoning_effort": "high",
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "provider": {
+            "order": ["DeepInfra"],
+            "allow_fallbacks": False,
+            "quantizations": ["bf16"],
         },
     },
 }
