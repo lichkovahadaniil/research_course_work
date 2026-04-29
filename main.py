@@ -190,7 +190,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--problems",
         nargs="*",
         metavar="PROBLEM_SELECTION",
-        help="Task-scoped problem list, e.g. `north p1 p2 alpha p1`; task alone selects all p1-p7.",
+        help="Task-scoped problem list, e.g. `alpha p1 p2`; task alone selects all p1-p20.",
     )
     models_run_parser.add_argument("--orders", nargs="+", choices=VARIANT_NAMES, required=True)
     models_run_parser.add_argument("--runs", type=int, default=1)

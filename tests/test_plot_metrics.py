@@ -36,7 +36,7 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
         "p7",
         "canonical",
         1,
-        "grok-4.1-fast",
+        "deepseek-v4-flash",
         {
             "strict": {
                 "plan_length": 4,
@@ -62,7 +62,7 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
         "p7",
         "disp_1",
         2,
-        "deepseek/deepseek-v4-flash",
+        "deepseek-v4-flash",
         {
             "strict": {
                 "plan_length": None,
@@ -88,7 +88,7 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
         "p7",
         "disp_1",
         3,
-        "deepseek/deepseek-v4-flash",
+        "deepseek-v4-flash",
         {
             "strict": {
                 "plan_length": None,
@@ -137,7 +137,7 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
     failed_row = records[records["run"] == 2].iloc[0]
     unreachable_row = records[records["run"] == 3].iloc[0]
     assert reachable_row["task"] == "alpha"
-    assert reachable_row["problem_type"] == "full_53"
+    assert reachable_row["problem_type"] == "s01_l53"
     assert reachable_row["plan_length"] == 4
     assert failed_row["plan_length"] != failed_row["plan_length"]
     assert failed_row["conditional_reachability"] != failed_row["conditional_reachability"]
@@ -153,9 +153,9 @@ def test_summarize_records_groups_by_variant_and_model() -> None:
 
     records = pd.DataFrame(
         [
-            {"variant": "canonical", "model": "grok-4.1-fast", "plan_length": 10},
-            {"variant": "canonical", "model": "grok-4.1-fast", "plan_length": 14},
-            {"variant": "disp_1", "model": "grok-4.1-fast", "plan_length": 8},
+            {"variant": "canonical", "model": "deepseek-v4-flash", "plan_length": 10},
+            {"variant": "canonical", "model": "deepseek-v4-flash", "plan_length": 14},
+            {"variant": "disp_1", "model": "deepseek-v4-flash", "plan_length": 8},
         ]
     )
 
@@ -171,27 +171,27 @@ def test_summarize_problem_type_records_keeps_orders_separate() -> None:
     records = pd.DataFrame(
         [
             {
-                "problem_type": "full_53",
+                "problem_type": "s01_l53",
                 "variant": "canonical",
-                "model": "grok-4.1-fast",
+                "model": "deepseek-v4-flash",
                 "plan_length": 10,
             },
             {
-                "problem_type": "full_53",
+                "problem_type": "s01_l53",
                 "variant": "canonical",
-                "model": "grok-4.1-fast",
+                "model": "deepseek-v4-flash",
                 "plan_length": 14,
             },
             {
-                "problem_type": "full_53",
+                "problem_type": "s01_l53",
                 "variant": "disp_1",
-                "model": "grok-4.1-fast",
+                "model": "deepseek-v4-flash",
                 "plan_length": 30,
             },
             {
-                "problem_type": "full_53",
+                "problem_type": "s01_l53",
                 "variant": "canonical",
-                "model": "deepseek/deepseek-v4-flash",
+                "model": "glm-4.7-flash",
                 "plan_length": 18,
             },
         ]
@@ -200,18 +200,18 @@ def test_summarize_problem_type_records_keeps_orders_separate() -> None:
     summary = summarize_problem_type_records(records, "plan_length")
 
     assert len(summary) == 3
-    canonical_grok = summary[
-        (summary["problem_type"] == "full_53")
+    canonical_deepseek = summary[
+        (summary["problem_type"] == "s01_l53")
         & (summary["variant"] == "canonical")
-        & (summary["model"] == "grok-4.1-fast")
+        & (summary["model"] == "deepseek-v4-flash")
     ]
-    disp_grok = summary[
-        (summary["problem_type"] == "full_53")
+    disp_deepseek = summary[
+        (summary["problem_type"] == "s01_l53")
         & (summary["variant"] == "disp_1")
-        & (summary["model"] == "grok-4.1-fast")
+        & (summary["model"] == "deepseek-v4-flash")
     ]
-    assert canonical_grok["plan_length"].iloc[0] == 12
-    assert disp_grok["plan_length"].iloc[0] == 30
+    assert canonical_deepseek["plan_length"].iloc[0] == 12
+    assert disp_deepseek["plan_length"].iloc[0] == 30
 
 
 def test_build_reports_writes_problem_and_problem_type_barplots(tmp_path, monkeypatch) -> None:
@@ -223,7 +223,7 @@ def test_build_reports_writes_problem_and_problem_type_barplots(tmp_path, monkey
         "p7",
         "canonical",
         1,
-        "grok-4.1-fast",
+        "deepseek-v4-flash",
         {
             "strict": {
                 "plan_length": 3,
@@ -271,6 +271,6 @@ def test_build_reports_writes_problem_and_problem_type_barplots(tmp_path, monkey
         / "logistics"
         / "graph"
         / "by_problem_type"
-        / "full_53"
+        / "s01_l53"
         / "plan_length_barplot.png"
     ).exists()

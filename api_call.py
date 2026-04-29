@@ -13,16 +13,10 @@ load_dotenv()
 
 
 MODEL_ALIASES = {
-    "grok-4.1-fast": "x-ai/grok-4.1-fast",
     "deepseek-v4-flash": "deepseek/deepseek-v4-flash",
     "glm-4.7-flash": "z-ai/glm-4.7-flash",
 }
 MODEL_CONFIG = {
-    "x-ai/grok-4.1-fast": {
-        "max_tokens": None,
-        "supports_reasoning": True,
-        "reasoning_effort": "high",
-    },
     "deepseek/deepseek-v4-flash": {
         "max_tokens": None,
         "supports_reasoning": True,
@@ -85,7 +79,7 @@ def _read_text(path: str | Path) -> str:
 def call_openrouter(
     domain_path: str | Path,
     problem_path: str | Path,
-    model: str = "grok-4.1-fast",
+    model: str = "deepseek-v4-flash",
     reasoning_enabled: bool = True,
     fix_plan_format_enabled: bool = False,
 ) -> dict[str, object]:
