@@ -81,6 +81,32 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
             "raw_response": "(move x y)",
         },
     )
+    write_result(
+        tmp_path,
+        "logistics",
+        "alpha",
+        "p7",
+        "disp_1",
+        3,
+        "deepseek/deepseek-v4-flash",
+        {
+            "strict": {
+                "plan_length": None,
+                "executability": True,
+                "reachability": False,
+                "first_failure_step": None,
+                "non_executable_failure": None,
+            },
+            "legacy": {
+                "optimality_ratio": None,
+            },
+        },
+        {
+            "completion_tokens": 90,
+            "reasoning": "analysis step",
+            "raw_response": "(move x y)\n(move y z)",
+        },
+    )
 
     records = build_records(["logistics"], [ProblemRef("alpha", "p7")])
 
@@ -106,14 +132,17 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
         "raw_completion_tokens",
         "completion_token_breakdown_source",
     }
-    assert len(records) == 2
+    assert len(records) == 3
     reachable_row = records[records["run"] == 1].iloc[0]
     failed_row = records[records["run"] == 2].iloc[0]
+    unreachable_row = records[records["run"] == 3].iloc[0]
     assert reachable_row["task"] == "alpha"
     assert reachable_row["problem_type"] == "full_53"
     assert reachable_row["plan_length"] == 4
     assert failed_row["plan_length"] != failed_row["plan_length"]
+    assert failed_row["conditional_reachability"] != failed_row["conditional_reachability"]
     assert failed_row["non_executable_failure"] == 1.0
+    assert unreachable_row["conditional_reachability"] == 0.0
     assert reachable_row["completion_tokens"] == 120
     assert reachable_row["reasoning_completion_tokens"] + reachable_row["raw_completion_tokens"] == 120
     assert reachable_row["completion_token_breakdown_source"] == "estimated_text_ratio"

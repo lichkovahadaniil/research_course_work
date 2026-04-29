@@ -97,7 +97,7 @@ def _metrics_record_from_payload(payload: dict[str, Any]) -> dict[str, float | N
         "plan_length": strict.get("plan_length") if reachability else None,
         "executability": float(executability),
         "reachability": float(reachability),
-        "conditional_reachability": float(executability and reachability),
+        "conditional_reachability": float(reachability) if executability else None,
         "optimality_ratio": legacy.get("optimality_ratio") if reachability else None,
         "first_failure_step": strict.get("first_failure_step"),
         "non_executable_failure": float(strict.get("non_executable_failure") is not None),
