@@ -398,6 +398,9 @@ def markdown_report(model_name: str, payload: dict[str, Any]) -> str:
         lines.append(
             "| metric | order | n | canonical | order | b | c | risk diff | matched OR | p | p Holm |"
         )
+        lines.append(
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+        )
         break
     if payload["binary_tests"]:
         for result in payload["binary_tests"]:
@@ -432,6 +435,9 @@ def markdown_report(model_name: str, payload: dict[str, Any]) -> str:
     if payload["numeric_tests"]:
         lines.append(
             "| metric | order | n | canonical mean | order mean | mean diff | % diff | dz | p t-test | p perm | p perm Holm |"
+        )
+        lines.append(
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
         )
         for result in payload["numeric_tests"]:
             lines.append(

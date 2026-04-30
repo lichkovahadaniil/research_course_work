@@ -10,6 +10,7 @@ Pairing unit: `(problem, run)` within this model. Each test only uses pairs wher
 Exact McNemar test is used for binary outcomes. `b` means compared order succeeds while canonical fails; `c` means canonical succeeds while compared order fails. Effect size is reported as risk difference and matched odds ratio.
 
 | metric | order | n | canonical | order | b | c | risk diff | matched OR | p | p Holm |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | reachability | disp_1 | 40 | 0.0500 | 0.1000 | 3 | 1 | 0.0500 | 3.0000 | 0.625000 | 1.000000 |
 | reachability | disp_2 | 40 | 0.0500 | 0.1000 | 3 | 1 | 0.0500 | 3.0000 | 0.625000 | 1.000000 |
 | reachability | disp_3 | 40 | 0.0500 | 0.0250 | 0 | 1 | -0.0250 | 0.0000 | 1.000000 | 1.000000 |
@@ -28,6 +29,7 @@ Exact McNemar test is used for binary outcomes. `b` means compared order succeed
 Numeric metrics use paired t-test plus paired sign-flip permutation p-value. Effect size is Cohen's dz: mean paired difference divided by the standard deviation of paired differences.
 
 | metric | order | n | canonical mean | order mean | mean diff | % diff | dz | p t-test | p perm | p perm Holm |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | plan_length | disp_1 | 1 | 8.0000 | 8.0000 | 0.0000 | 0.0000 | NA | NA | 1.000000 | 1.000000 |
 | plan_length | disp_2 | 1 | 6.0000 | 8.0000 | 2.0000 | 0.3333 | NA | NA | 1.000000 | 1.000000 |
 | plan_length | disp_3 | 1 | 6.0000 | 6.0000 | 0.0000 | 0.0000 | NA | NA | 1.000000 | 1.000000 |
