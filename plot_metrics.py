@@ -641,18 +641,14 @@ def build_reports(domains: list[str], problem_refs: list[ProblemRef]) -> None:
                     f"{_metric_title(metric, coverage_ratio)} by variant - {problem_label}",
                 )
 
-            token_records = _token_breakdown_subset(problem_records)
-            token_coverage_ratio = len(token_records) / len(problem_records)
-            _plot_problem_token_breakdown(
-                token_records,
-                problem_dir / "completion_token_breakdown_barplot.png",
-                f"{_token_breakdown_title(token_coverage_ratio)} by variant - {problem_label}",
-            )
+        token_records = _token_breakdown_subset(problem_records)
+        token_coverage_ratio = len(token_records) / len(problem_records)
+        _plot_problem_token_breakdown(
+            token_records,
+            problem_dir / "completion_token_breakdown_barplot.png",
+            f"{_token_breakdown_title(token_coverage_ratio)} by variant - {problem_label}",
+        )
 
-        type_graph_dir = graph_dir / "by_problem_type"
-        type_graph_dir.mkdir(parents=True, exist_ok=True)
-        for problem_type in PROBLEM_TYPE_ORDER:
-            (type_graph_dir / problem_type).mkdir(parents=True, exist_ok=True)
         if domain_records.empty:
             continue
 
@@ -662,24 +658,17 @@ def build_reports(domains: list[str], problem_refs: list[ProblemRef]) -> None:
                 continue
 
             coverage_ratio = len(metric_records) / len(domain_records)
-            _plot_problem_type_bar(
+            _plot_problem_variant_bar(
                 metric_records,
                 metric,
-                type_graph_dir / f"{metric['slug']}_by_problem_type_and_order_barplot.png",
-                f"{_metric_title(metric, coverage_ratio)} by problem type and order",
+                graph_dir / f"{metric['slug']}_by_order_barplot.png",
+                f"{_metric_title(metric, coverage_ratio)} by order",
             )
 
-            for problem_type in PROBLEM_TYPE_ORDER:
-                type_records = metric_records[metric_records["problem_type"] == problem_type].copy()
-                if type_records.empty:
-                    continue
-                type_all_records = domain_records[domain_records["problem_type"] == problem_type]
-                type_coverage_ratio = len(type_records) / len(type_all_records) if len(type_all_records) else 0.0
-                single_type_dir = type_graph_dir / problem_type
-                single_type_dir.mkdir(parents=True, exist_ok=True)
-                _plot_single_problem_type_bar(
-                    type_records,
-                    metric,
-                    single_type_dir / f"{metric['slug']}_barplot.png",
-                    f"{_metric_title(metric, type_coverage_ratio)} - {PROBLEM_TYPE_LABELS.get(problem_type, problem_type)}",
-                )
+        token_records = _token_breakdown_subset(domain_records)
+        token_coverage_ratio = len(token_records) / len(domain_records)
+        _plot_problem_token_breakdown(
+            token_records,
+            graph_dir / "completion_token_breakdown_by_order_barplot.png",
+            f"{_token_breakdown_title(token_coverage_ratio)} by order",
+        )

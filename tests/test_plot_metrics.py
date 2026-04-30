@@ -214,7 +214,7 @@ def test_summarize_problem_type_records_keeps_orders_separate() -> None:
     assert disp_deepseek["plan_length"].iloc[0] == 30
 
 
-def test_build_reports_writes_problem_and_problem_type_barplots(tmp_path, monkeypatch) -> None:
+def test_build_reports_writes_problem_and_order_barplots(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     write_result(
         tmp_path,
@@ -262,15 +262,13 @@ def test_build_reports_writes_problem_and_problem_type_barplots(tmp_path, monkey
         / "materials"
         / "logistics"
         / "graph"
-        / "by_problem_type"
-        / "plan_length_by_problem_type_and_order_barplot.png"
+        / "plan_length_by_order_barplot.png"
     ).exists()
     assert (
         tmp_path
         / "materials"
         / "logistics"
         / "graph"
-        / "by_problem_type"
-        / "s01_l53"
-        / "plan_length_barplot.png"
+        / "completion_token_breakdown_by_order_barplot.png"
     ).exists()
+    assert not (tmp_path / "materials" / "logistics" / "graph" / "by_problem_type").exists()
