@@ -53,6 +53,12 @@ def _variants_are_up_to_date(problem_dir: Path, problem_ref: ProblemRef | None =
     if not all(isinstance(order, list) and order for order in variant_orders.values()):
         return False
 
+    plan_action_order = metadata.get("plan_action_order")
+    if not isinstance(plan_action_order, list):
+        return False
+    if not all(isinstance(action_name, str) for action_name in plan_action_order):
+        return False
+
     return all((problem_dir / variant_name / "domain.pddl").exists() for variant_name in VARIANT_NAMES)
 
 

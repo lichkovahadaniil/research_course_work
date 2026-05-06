@@ -50,7 +50,10 @@ def _extract_plan_length(output: str, plan_path: str | Path | None = None) -> in
     if match:
         return int(match.group(1))
     if plan_path is not None:
-        return len(_read_plan_actions(plan_path))
+        try:
+            return len(_read_plan_actions(plan_path))
+        except FileNotFoundError:
+            return None
     return None
 
 
@@ -60,6 +63,22 @@ def _extract_first_failure_step(output: str) -> int | None:
         if match:
             return int(match.group(1))
     return None
+
+
+def _execution_progress(
+    failure_code: str | None,
+    first_failure_step: int | None,
+    plan_length: int | None,
+) -> float | None:
+    if failure_code == "parse_error":
+        return 0.0
+    if plan_length is None:
+        return None
+    if failure_code == "state_execution_error":
+        if first_failure_step is None:
+            return None
+        return first_failure_step / (plan_length + 1)
+    return 1.0
 
 
 def _run_validator(
@@ -115,12 +134,16 @@ def strict_validation(domain_path: str | Path, problem_path: str | Path, plan_pa
     else:
         failure_code = None
 
+    plan_length = _extract_plan_length(output, plan_path=plan_path)
+    first_failure_step = _extract_first_failure_step(output) if failure_code == "state_execution_error" else None
+
     return {
         "parsable": parsable,
-        "plan_length": _extract_plan_length(output, plan_path=plan_path) if reachability else None,
+        "plan_length": plan_length,
         "executability": executability,
         "reachability": reachability,
-        "first_failure_step": _extract_first_failure_step(output) if failure_code == "state_execution_error" else None,
+        "execution_progress": _execution_progress(failure_code, first_failure_step, plan_length),
+        "first_failure_step": first_failure_step,
         "non_executable_failure": failure_code,
         "strict_final_value": _extract_numeric_value(output) if reachability else None,
         "validator_timed_out": timed_out,

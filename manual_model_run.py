@@ -7,7 +7,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 from checker import build_metrics
 from token_usage import build_token_usage_from_payload
@@ -59,7 +62,8 @@ def append_spending(response: dict[str, Any], model: str, domain_path: Path, pro
     }
 
     with open(lock_path, "w", encoding="utf-8") as lock_handle:
-        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        if fcntl is not None:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
         try:
             if spendings_path.exists():
                 try:
@@ -72,7 +76,8 @@ def append_spending(response: dict[str, Any], model: str, domain_path: Path, pro
             payload.append(entry)
             atomic_write_json(spendings_path, payload)
         finally:
-            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+            if fcntl is not None:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
 
 def load_json_dict(path: Path) -> dict[str, Any] | None:
@@ -94,11 +99,12 @@ def _metrics_record_from_payload(payload: dict[str, Any]) -> dict[str, float | N
     executability = bool(strict.get("executability"))
     reachability = bool(strict.get("reachability"))
     return {
-        "plan_length": strict.get("plan_length") if reachability else None,
+        "plan_length": strict.get("plan_length"),
         "executability": float(executability),
         "reachability": float(reachability),
         "conditional_reachability": float(reachability) if executability else None,
         "optimality_ratio": legacy.get("optimality_ratio") if reachability else None,
+        "execution_progress": strict.get("execution_progress"),
         "first_failure_step": strict.get("first_failure_step"),
         "non_executable_failure": float(strict.get("non_executable_failure") is not None),
         "prompt_tokens": token_usage["prompt_tokens"],

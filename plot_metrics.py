@@ -41,6 +41,7 @@ RECORD_COLUMNS = [
     "reachability",
     "conditional_reachability",
     "optimality_ratio",
+    "execution_progress",
     "first_failure_step",
     "non_executable_failure",
     "prompt_tokens",
@@ -54,7 +55,7 @@ METRICS = [
     {
         "slug": "plan_length",
         "title": "Plan Length",
-        "subset": "reachable",
+        "subset": "all",
         "rate": False,
     },
     {
@@ -79,6 +80,12 @@ METRICS = [
         "slug": "optimality_ratio",
         "title": "Optimality Ratio",
         "subset": "reachable",
+        "rate": False,
+    },
+    {
+        "slug": "execution_progress",
+        "title": "Execution Progress",
+        "subset": "all",
         "rate": False,
     },
     {
@@ -138,11 +145,12 @@ def _build_record(
         "variant": variant_name,
         "run": run_id,
         "model": model_name,
-        "plan_length": strict.get("plan_length") if reachability else None,
+        "plan_length": strict.get("plan_length"),
         "executability": float(executability),
         "reachability": float(reachability),
         "conditional_reachability": float(reachability) if executability else None,
         "optimality_ratio": legacy.get("optimality_ratio") if reachability else None,
+        "execution_progress": strict.get("execution_progress"),
         "first_failure_step": strict.get("first_failure_step"),
         "non_executable_failure": float(strict.get("non_executable_failure") is not None),
         "prompt_tokens": token_usage["prompt_tokens"],

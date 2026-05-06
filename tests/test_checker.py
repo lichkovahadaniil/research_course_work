@@ -17,6 +17,7 @@ def test_strict_validation_parse_error(monkeypatch) -> None:
     assert parsed["executability"] is False
     assert parsed["reachability"] is False
     assert parsed["plan_length"] is None
+    assert parsed["execution_progress"] == 0.0
     assert parsed["non_executable_failure"] == "parse_error"
 
 
@@ -30,6 +31,7 @@ def test_strict_validation_state_execution_failure(monkeypatch) -> None:
     assert parsed["executability"] is False
     assert parsed["reachability"] is False
     assert parsed["first_failure_step"] == 2
+    assert parsed["execution_progress"] == 2 / 4
     assert parsed["non_executable_failure"] == "state_execution_error"
 
 
@@ -59,6 +61,13 @@ def test_build_metrics_skips_cost_for_unreachable_plan(tmp_path: Path, monkeypat
             "strict_final_value": None,
             "validator_timed_out": False,
             "validator_stdout_strict": "failed",
+        },
+    )
+    monkeypatch.setattr(
+        "checker._load_reference_plan_stats",
+        lambda *args, **kwargs: {
+            "optimal_cost": 1.0,
+            "optimal_plan_length": 1,
         },
     )
 

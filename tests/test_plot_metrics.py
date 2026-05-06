@@ -123,6 +123,7 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
         "reachability",
         "conditional_reachability",
         "optimality_ratio",
+        "execution_progress",
         "first_failure_step",
         "non_executable_failure",
         "prompt_tokens",

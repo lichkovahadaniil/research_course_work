@@ -80,9 +80,12 @@ def build_run_commands(
     orders: list[str],
     runs: int,
     force: bool,
+    start_run: int = 1,
 ) -> list[list[str]]:
     if runs < 1:
         raise ValueError("runs must be at least 1")
+    if start_run < 1:
+        raise ValueError("start_run must be at least 1")
 
     commands: list[list[str]] = []
     script_path = Path(__file__).with_name("manual_model_run.py")
@@ -100,7 +103,7 @@ def build_run_commands(
                     f"missing variant domain: {domain_path}. Run `python3 main.py --force` first."
                 )
 
-            for run_id in range(1, runs + 1):
+            for run_id in range(start_run, start_run + runs):
                 run_dir = order_dir / str(run_id)
 
                 for model_name in models:
@@ -134,10 +137,11 @@ def run_models(
     models: list[str],
     orders: list[str],
     runs: int,
+    start_run: int = 1,
     jobs: int = 1,
     force: bool = False,
 ) -> None:
-    commands = build_run_commands(problem_refs, models, orders, runs, force)
+    commands = build_run_commands(problem_refs, models, orders, runs, force, start_run=start_run)
     total = len(commands)
     if total == 0:
         print("Nothing to run.")
@@ -194,6 +198,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     models_run_parser.add_argument("--orders", nargs="+", choices=VARIANT_NAMES, required=True)
     models_run_parser.add_argument("--runs", type=int, default=1)
+    models_run_parser.add_argument(
+        "--start-run",
+        type=int,
+        default=1,
+        help="First run id to write (default: 1). Use `--start-run 6 --runs 5` for runs 6-10.",
+    )
     models_run_parser.add_argument("--jobs", type=int, default=1, help="Number of parallel processes (default: 1)")
     models_run_parser.add_argument("--force", action="store_true")
 
@@ -216,6 +226,8 @@ def main() -> None:
     if args.command == "models-run":
         if args.runs < 1:
             parser.error("--runs must be at least 1")
+        if args.start_run < 1:
+            parser.error("--start-run must be at least 1")
         try:
             problem_refs = normalize_problem_refs(args.problems)
         except ValueError as exc:
@@ -225,6 +237,7 @@ def main() -> None:
             args.models,
             args.orders,
             args.runs,
+            start_run=args.start_run,
             jobs=args.jobs,
             force=args.force,
         )

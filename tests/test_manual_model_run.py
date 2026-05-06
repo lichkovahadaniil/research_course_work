@@ -75,8 +75,8 @@ def test_refresh_aggregate_for_model_writes_mean_and_std(tmp_path: Path) -> None
     assert payload["model"] == "deepseek-v4-flash"
     assert payload["run_count"] == 2
     assert payload["runs"] == [1, 2]
-    assert payload["metrics"]["plan_length"]["count"] == 1
-    assert payload["metrics"]["plan_length"]["mean"] == 4.0
+    assert payload["metrics"]["plan_length"]["count"] == 2
+    assert payload["metrics"]["plan_length"]["mean"] == 5.0
     assert payload["metrics"]["executability"]["mean"] == 0.5
     assert payload["metrics"]["conditional_reachability"]["count"] == 1
     assert payload["metrics"]["conditional_reachability"]["mean"] == 1.0
