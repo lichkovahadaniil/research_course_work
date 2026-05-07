@@ -58,6 +58,24 @@ def test_build_run_commands_skips_existing_runs_without_force(tmp_path: Path, mo
     assert {Path(command[9]).parent.name for command in commands} == {"2", "3", "4"}
 
 
+def test_build_run_commands_supports_start_run(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    problem_ref = ProblemRef("alpha", "p1")
+    create_prepared_problem(tmp_path, "logistics", problem_ref)
+
+    commands = build_run_commands(
+        [problem_ref],
+        ["deepseek-v4-flash"],
+        ["canonical"],
+        runs=5,
+        force=False,
+        start_run=6,
+    )
+
+    assert len(commands) == 5
+    assert {Path(command[9]).parent.name for command in commands} == {"6", "7", "8", "9", "10"}
+
+
 def test_build_run_commands_keeps_existing_runs_with_force(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     problem_ref = ProblemRef("alpha", "p1")

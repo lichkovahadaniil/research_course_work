@@ -14,13 +14,15 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from experiment_config import MODEL_NAMES, PROBLEM_IDS
-from manual_model_run import model_output_dir_name
 from shuffler import VARIANT_NAMES
 from token_usage import build_token_usage_from_payload
 
 
 BASELINE_ORDER = "canonical"
 COMPARED_ORDERS = [order for order in VARIANT_NAMES if order != BASELINE_ORDER]
+EXTRA_ORDER_COMPARISONS = [
+    ("plan_front", "plan_scatter"),
+]
 DATA_ROOT = PROJECT_ROOT / "materials" / "logistics" / "alpha"
 OUTPUT_DIR = Path(__file__).resolve().parent
 
@@ -35,8 +37,9 @@ CONDITIONAL_BINARY_METRICS = {
     ),
 }
 NUMERIC_METRICS = {
-    "plan_length": "Strict VAL plan length; only available when goal is reached.",
+    "plan_length": "Strict VAL plan length, counted regardless of executability or goal reachability.",
     "optimality_ratio": "Validated cost divided by reference cost; only available when goal is reached.",
+    "execution_progress": "Execution progress from 0.0 (parse error) to 1.0 (executed through the whole plan).",
     "first_failure_step": "First failed execution step; only available for state execution errors.",
     "prompt_tokens": "Prompt tokens reported by provider.",
     "completion_tokens": "Completion tokens reported or normalized from provider payload.",
@@ -45,6 +48,10 @@ NUMERIC_METRICS = {
     "total_tokens": "Total tokens reported or normalized from provider payload.",
     "duration_sec": "Model call duration in seconds.",
 }
+
+
+def model_output_dir_name(model_name: str) -> str:
+    return model_name.split("/")[-1].replace(":", "-").replace(".", "-")
 
 
 def exact_mcnemar_p(order_only: int, baseline_only: int) -> float:
@@ -157,6 +164,46 @@ def sign_flip_permutation_p(
     return extreme / samples
 
 
+def percentile(values: list[float], q: float) -> float | None:
+    if not values:
+        return None
+    if len(values) == 1:
+        return values[0]
+
+    ordered = sorted(values)
+    position = (len(ordered) - 1) * q
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return ordered[lower]
+
+    lower_weight = upper - position
+    upper_weight = position - lower
+    return ordered[lower] * lower_weight + ordered[upper] * upper_weight
+
+
+def bootstrap_mean_ci(
+    differences: list[float],
+    *,
+    samples: int = 10000,
+    seed: int = 54321,
+    alpha: float = 0.05,
+) -> tuple[float | None, float | None]:
+    if not differences:
+        return None, None
+
+    rng = random.Random(seed)
+    bootstrap_means: list[float] = []
+    for _ in range(samples):
+        sample = [differences[rng.randrange(len(differences))] for _ in differences]
+        bootstrap_means.append(sum(sample) / len(sample))
+
+    return (
+        percentile(bootstrap_means, alpha / 2),
+        percentile(bootstrap_means, 1 - alpha / 2),
+    )
+
+
 def holm_adjust(results: list[dict[str, Any]], p_key: str) -> list[float | None]:
     indexed = [
         (index, result[p_key])
@@ -217,10 +264,11 @@ def load_rows() -> list[dict[str, Any]]:
                             "non_executable_failure": 1.0
                             if strict.get("non_executable_failure") is not None
                             else 0.0,
-                            "plan_length": strict.get("plan_length") if reachable else None,
+                            "plan_length": strict.get("plan_length"),
                             "optimality_ratio": legacy.get("optimality_ratio")
                             if reachable
                             else None,
+                            "execution_progress": strict.get("execution_progress"),
                             "first_failure_step": strict.get("first_failure_step"),
                             "prompt_tokens": token_usage["prompt_tokens"],
                             "completion_tokens": token_usage["completion_tokens"],
@@ -239,7 +287,8 @@ def build_pairs(
     rows: list[dict[str, Any]],
     model_name: str,
     metric: str,
-    order_name: str,
+    baseline_order: str,
+    compared_order: str,
     *,
     require_both_executable: bool = False,
 ) -> list[tuple[float, float]]:
@@ -251,10 +300,10 @@ def build_pairs(
 
     pairs: list[tuple[float, float]] = []
     for values in by_key.values():
-        if BASELINE_ORDER not in values or order_name not in values:
+        if baseline_order not in values or compared_order not in values:
             continue
-        baseline = values[BASELINE_ORDER]
-        compared = values[order_name]
+        baseline = values[baseline_order]
+        compared = values[compared_order]
         if require_both_executable and not (
             baseline["executability"] == 1.0 and compared["executability"] == 1.0
         ):
@@ -271,7 +320,8 @@ def mcnemar_result(
     rows: list[dict[str, Any]],
     model_name: str,
     metric: str,
-    order_name: str,
+    baseline_order: str,
+    compared_order: str,
     *,
     require_both_executable: bool = False,
 ) -> dict[str, Any]:
@@ -279,7 +329,8 @@ def mcnemar_result(
         rows,
         model_name,
         metric,
-        order_name,
+        baseline_order,
+        compared_order,
         require_both_executable=require_both_executable,
     )
     n00 = n01 = n10 = n11 = 0
@@ -301,8 +352,8 @@ def mcnemar_result(
         "model": model_name,
         "metric": metric,
         "test": "exact_mcnemar",
-        "baseline_order": BASELINE_ORDER,
-        "compared_order": order_name,
+        "baseline_order": baseline_order,
+        "compared_order": compared_order,
         "n_pairs": sample_size,
         "n00_both_fail": n00,
         "n01_compared_only_success": n01,
@@ -322,9 +373,10 @@ def numeric_result(
     rows: list[dict[str, Any]],
     model_name: str,
     metric: str,
-    order_name: str,
+    baseline_order: str,
+    compared_order: str,
 ) -> dict[str, Any]:
-    pairs = build_pairs(rows, model_name, metric, order_name)
+    pairs = build_pairs(rows, model_name, metric, baseline_order, compared_order)
     baseline_values = [baseline for baseline, _ in pairs]
     compared_values = [compared for _, compared in pairs]
     differences = [compared - baseline for baseline, compared in pairs]
@@ -337,8 +389,8 @@ def numeric_result(
         "model": model_name,
         "metric": metric,
         "test": "paired_t_and_sign_flip_permutation",
-        "baseline_order": BASELINE_ORDER,
-        "compared_order": order_name,
+        "baseline_order": baseline_order,
+        "compared_order": compared_order,
         "n_pairs": len(pairs),
         "baseline_mean": baseline_mean,
         "compared_mean": compared_mean,
@@ -354,6 +406,102 @@ def numeric_result(
         "p_value_t_test": t_result["p_value"],
         "p_value_sign_flip_permutation": permutation_p,
         "cohens_dz": t_result["cohens_dz"],
+    }
+
+
+def problem_level_result(
+    rows: list[dict[str, Any]],
+    model_name: str,
+    metric: str,
+    baseline_order: str,
+    compared_order: str,
+    *,
+    require_both_executable: bool = False,
+) -> dict[str, Any]:
+    by_key: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        if row["model"] != model_name:
+            continue
+        if row["order"] not in {baseline_order, compared_order}:
+            continue
+        by_key[(row["problem"], row["order"])].append(row)
+
+    problem_records: list[dict[str, Any]] = []
+    differences: list[float] = []
+    baseline_values: list[float] = []
+    compared_values: list[float] = []
+
+    for problem_id in PROBLEM_IDS:
+        baseline_rows = by_key.get((problem_id, baseline_order), [])
+        compared_rows = by_key.get((problem_id, compared_order), [])
+        if not baseline_rows or not compared_rows:
+            continue
+
+        if require_both_executable:
+            executable_run_ids = {
+                row["run"]
+                for row in baseline_rows
+                if row["executability"] == 1.0
+            } & {
+                row["run"]
+                for row in compared_rows
+                if row["executability"] == 1.0
+            }
+            baseline_rows = [row for row in baseline_rows if row["run"] in executable_run_ids]
+            compared_rows = [row for row in compared_rows if row["run"] in executable_run_ids]
+
+        baseline_metric_values = [
+            float(row[metric])
+            for row in baseline_rows
+            if row.get(metric) is not None
+        ]
+        compared_metric_values = [
+            float(row[metric])
+            for row in compared_rows
+            if row.get(metric) is not None
+        ]
+        if not baseline_metric_values or not compared_metric_values:
+            continue
+
+        baseline_mean = sum(baseline_metric_values) / len(baseline_metric_values)
+        compared_mean = sum(compared_metric_values) / len(compared_metric_values)
+        difference = compared_mean - baseline_mean
+        problem_records.append(
+            {
+                "problem": problem_id,
+                "baseline_mean": baseline_mean,
+                "compared_mean": compared_mean,
+                "difference": difference,
+                "baseline_count": len(baseline_metric_values),
+                "compared_count": len(compared_metric_values),
+            }
+        )
+        differences.append(difference)
+        baseline_values.append(baseline_mean)
+        compared_values.append(compared_mean)
+
+    ci_low, ci_high = bootstrap_mean_ci(differences)
+    mean_difference = statistics.mean(differences) if differences else None
+    return {
+        "model": model_name,
+        "metric": metric,
+        "test": "problem_level_paired_sign_flip_with_bootstrap_ci",
+        "baseline_order": baseline_order,
+        "compared_order": compared_order,
+        "n_problems": len(differences),
+        "baseline_mean": statistics.mean(baseline_values) if baseline_values else None,
+        "compared_mean": statistics.mean(compared_values) if compared_values else None,
+        "mean_difference": mean_difference,
+        "percent_difference_vs_baseline": (
+            mean_difference / statistics.mean(baseline_values)
+            if mean_difference is not None and baseline_values and statistics.mean(baseline_values) != 0
+            else None
+        ),
+        "ci95_low": ci_low,
+        "ci95_high": ci_high,
+        "p_value_sign_flip_permutation": sign_flip_permutation_p(differences),
+        "problem_records": problem_records,
+        "requires_both_executable": require_both_executable,
     }
 
 
@@ -380,23 +528,38 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer.writerows(rows)
 
 
+def comparison_label(result: dict[str, Any]) -> str:
+    return f"{result['baseline_order']} -> {result['compared_order']}"
+
+
 def markdown_report(model_name: str, payload: dict[str, Any]) -> str:
+    extra_comparison_text = (
+        ", ".join(
+            f"`{baseline}` vs `{compared}`"
+            for baseline, compared in payload["extra_order_comparisons"]
+        )
+        if payload["extra_order_comparisons"]
+        else "none available"
+    )
     lines = [
         f"# Statistical Tests: {model_name}",
         "",
         "Baseline order: `canonical`.",
-        "Compared orders: `disp_1`, `disp_2`, `disp_3`.",
+        "Canonical compared orders: "
+        + ", ".join(f"`{order_name}`" for order_name in payload["compared_orders"])
+        + ".",
+        f"Extra comparisons: {extra_comparison_text}.",
         "",
         "Pairing unit: `(problem, run)` within this model. Each test only uses pairs where both the baseline and compared order have an available value.",
         "",
         "## Binary Metrics",
         "",
-        "Exact McNemar test is used for binary outcomes. `b` means compared order succeeds while canonical fails; `c` means canonical succeeds while compared order fails. Effect size is reported as risk difference and matched odds ratio.",
+        "Exact McNemar test is used for binary outcomes. `b` means compared order succeeds while baseline fails; `c` means baseline succeeds while compared order fails. Effect size is reported as risk difference and matched odds ratio.",
         "",
     ]
     for result in payload["binary_tests"]:
         lines.append(
-            "| metric | order | n | canonical | order | b | c | risk diff | matched OR | p | p Holm |"
+            "| metric | comparison | n | baseline | compared | b | c | risk diff | matched OR | p | p Holm |"
         )
         lines.append(
             "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
@@ -409,7 +572,7 @@ def markdown_report(model_name: str, payload: dict[str, Any]) -> str:
                 + " | ".join(
                     [
                         result["metric"],
-                        result["compared_order"],
+                        comparison_label(result),
                         str(result["n_pairs"]),
                         format_number(result["baseline_mean"]),
                         format_number(result["compared_mean"]),
@@ -434,7 +597,7 @@ def markdown_report(model_name: str, payload: dict[str, Any]) -> str:
     )
     if payload["numeric_tests"]:
         lines.append(
-            "| metric | order | n | canonical mean | order mean | mean diff | % diff | dz | p t-test | p perm | p perm Holm |"
+            "| metric | comparison | n | baseline mean | compared mean | mean diff | % diff | dz | p t-test | p perm | p perm Holm |"
         )
         lines.append(
             "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
@@ -445,7 +608,7 @@ def markdown_report(model_name: str, payload: dict[str, Any]) -> str:
                 + " | ".join(
                     [
                         result["metric"],
-                        result["compared_order"],
+                        comparison_label(result),
                         str(result["n_pairs"]),
                         format_number(result["baseline_mean"]),
                         format_number(result["compared_mean"]),
@@ -459,6 +622,39 @@ def markdown_report(model_name: str, payload: dict[str, Any]) -> str:
                 )
                 + " |"
             )
+    lines.extend(
+        [
+            "",
+            "## Problem-Level Tests",
+            "",
+            "Runs are averaged within each problem first. The test unit is the problem, not an individual run. `mean diff` is compared minus baseline, with a paired sign-flip permutation p-value and a bootstrap 95% CI over problems.",
+            "",
+        ]
+    )
+    if payload["problem_level_tests"]:
+        lines.append(
+            "| metric | comparison | n problems | baseline mean | compared mean | mean diff | 95% CI | p perm |"
+        )
+        lines.append(
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"
+        )
+        for result in payload["problem_level_tests"]:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        result["metric"],
+                        comparison_label(result),
+                        str(result["n_problems"]),
+                        format_number(result["baseline_mean"]),
+                        format_number(result["compared_mean"]),
+                        format_number(result["mean_difference"]),
+                        f"[{format_number(result['ci95_low'])}, {format_number(result['ci95_high'])}]",
+                        format_number(result["p_value_sign_flip_permutation"], 6),
+                    ]
+                )
+                + " |"
+            )
     lines.append("")
     return "\n".join(lines)
 
@@ -466,16 +662,37 @@ def markdown_report(model_name: str, payload: dict[str, Any]) -> str:
 def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str, Any]:
     model_rows = [row for row in rows if row["model"] == model_name]
     run_ids = sorted({row["run"] for row in model_rows})
+    available_orders = {row["order"] for row in model_rows}
+    compared_orders = [
+        order_name
+        for order_name in COMPARED_ORDERS
+        if order_name in available_orders
+    ]
+    extra_order_comparisons = [
+        (baseline_order, compared_order)
+        for baseline_order, compared_order in EXTRA_ORDER_COMPARISONS
+        if baseline_order in available_orders and compared_order in available_orders
+    ]
+
     binary_tests: list[dict[str, Any]] = []
     for metric in BINARY_METRICS:
         metric_results = [
-            mcnemar_result(rows, model_name, metric, order_name)
-            for order_name in COMPARED_ORDERS
+            mcnemar_result(rows, model_name, metric, BASELINE_ORDER, order_name)
+            for order_name in compared_orders
         ]
         adjusted = holm_adjust(metric_results, "p_value")
         for result, p_holm in zip(metric_results, adjusted):
             result["p_value_holm"] = p_holm
         binary_tests.extend(metric_results)
+
+        extra_metric_results = [
+            mcnemar_result(rows, model_name, metric, baseline_order, compared_order)
+            for baseline_order, compared_order in extra_order_comparisons
+        ]
+        extra_adjusted = holm_adjust(extra_metric_results, "p_value")
+        for result, p_holm in zip(extra_metric_results, extra_adjusted):
+            result["p_value_holm"] = p_holm
+        binary_tests.extend(extra_metric_results)
 
     for metric in CONDITIONAL_BINARY_METRICS:
         metric_results = [
@@ -483,21 +700,38 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
                 rows,
                 model_name,
                 metric,
+                BASELINE_ORDER,
                 order_name,
                 require_both_executable=True,
             )
-            for order_name in COMPARED_ORDERS
+            for order_name in compared_orders
         ]
         adjusted = holm_adjust(metric_results, "p_value")
         for result, p_holm in zip(metric_results, adjusted):
             result["p_value_holm"] = p_holm
         binary_tests.extend(metric_results)
 
+        extra_metric_results = [
+            mcnemar_result(
+                rows,
+                model_name,
+                metric,
+                baseline_order,
+                compared_order,
+                require_both_executable=True,
+            )
+            for baseline_order, compared_order in extra_order_comparisons
+        ]
+        extra_adjusted = holm_adjust(extra_metric_results, "p_value")
+        for result, p_holm in zip(extra_metric_results, extra_adjusted):
+            result["p_value_holm"] = p_holm
+        binary_tests.extend(extra_metric_results)
+
     numeric_tests: list[dict[str, Any]] = []
     for metric in NUMERIC_METRICS:
         metric_results = [
-            numeric_result(rows, model_name, metric, order_name)
-            for order_name in COMPARED_ORDERS
+            numeric_result(rows, model_name, metric, BASELINE_ORDER, order_name)
+            for order_name in compared_orders
         ]
         adjusted_t = holm_adjust(metric_results, "p_value_t_test")
         adjusted_perm = holm_adjust(metric_results, "p_value_sign_flip_permutation")
@@ -505,6 +739,57 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
             result["p_value_t_test_holm"] = p_t_holm
             result["p_value_sign_flip_permutation_holm"] = p_perm_holm
         numeric_tests.extend(metric_results)
+
+        extra_metric_results = [
+            numeric_result(rows, model_name, metric, baseline_order, compared_order)
+            for baseline_order, compared_order in extra_order_comparisons
+        ]
+        extra_adjusted_t = holm_adjust(extra_metric_results, "p_value_t_test")
+        extra_adjusted_perm = holm_adjust(extra_metric_results, "p_value_sign_flip_permutation")
+        for result, p_t_holm, p_perm_holm in zip(
+            extra_metric_results,
+            extra_adjusted_t,
+            extra_adjusted_perm,
+        ):
+            result["p_value_t_test_holm"] = p_t_holm
+            result["p_value_sign_flip_permutation_holm"] = p_perm_holm
+        numeric_tests.extend(extra_metric_results)
+
+    problem_level_tests: list[dict[str, Any]] = []
+    for metric in BINARY_METRICS:
+        problem_level_tests.extend(
+            problem_level_result(
+                rows,
+                model_name,
+                metric,
+                baseline_order,
+                compared_order,
+            )
+            for baseline_order, compared_order in extra_order_comparisons
+        )
+    for metric in CONDITIONAL_BINARY_METRICS:
+        problem_level_tests.extend(
+            problem_level_result(
+                rows,
+                model_name,
+                metric,
+                baseline_order,
+                compared_order,
+                require_both_executable=True,
+            )
+            for baseline_order, compared_order in extra_order_comparisons
+        )
+    for metric in NUMERIC_METRICS:
+        problem_level_tests.extend(
+            problem_level_result(
+                rows,
+                model_name,
+                metric,
+                baseline_order,
+                compared_order,
+            )
+            for baseline_order, compared_order in extra_order_comparisons
+        )
 
     return {
         "model": model_name,
@@ -514,12 +799,14 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
         "run_ids": run_ids,
         "orders": VARIANT_NAMES,
         "baseline_order": BASELINE_ORDER,
-        "compared_orders": COMPARED_ORDERS,
+        "compared_orders": compared_orders,
+        "extra_order_comparisons": extra_order_comparisons,
         "method_summary": {
             "binary": "Exact McNemar test on paired binary outcomes.",
             "conditional_binary": "Exact McNemar test after filtering to pairs where both orders are executable.",
             "numeric": "Paired t-test and paired sign-flip permutation test.",
-            "multiple_comparisons": "Holm adjustment across the three order comparisons within each model/metric/test family.",
+            "problem_level": "Runs are averaged per problem before a paired sign-flip permutation test; bootstrap CI resamples problems.",
+            "multiple_comparisons": "Holm adjustment across canonical-vs-order comparisons and extra comparisons within each model/metric/test family.",
         },
         "metric_definitions": {
             **BINARY_METRICS,
@@ -528,6 +815,7 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
         },
         "binary_tests": binary_tests,
         "numeric_tests": numeric_tests,
+        "problem_level_tests": problem_level_tests,
     }
 
 
@@ -544,6 +832,8 @@ def main() -> None:
         "This folder contains reproducible order-effect tests for the saved local `llm_result.json` files. No model/API calls are made.",
         "",
         "Pairing is done within each model by `(problem, run)`: each compared order is matched with `canonical` for the same problem and run.",
+        "The report also includes the direct `plan_front` vs `plan_scatter` comparison when both orders are present.",
+        "Problem-level tests average runs inside each problem before testing the paired problem differences.",
         "",
         "Binary metrics use exact McNemar tests. Numeric metrics use paired t-tests and sign-flip permutation tests.",
         "",
@@ -562,6 +852,17 @@ def main() -> None:
         )
         md_path.write_text(markdown_report(model_name, payload), encoding="utf-8")
         write_csv(csv_path, payload["binary_tests"] + payload["numeric_tests"])
+        write_csv(
+            OUTPUT_DIR / f"{slug}_problem_level_tests.csv",
+            [
+                {
+                    key: value
+                    for key, value in result.items()
+                    if key != "problem_records"
+                }
+                for result in payload["problem_level_tests"]
+            ],
+        )
         index_lines.append(f"- `{json_path.name}` / `{md_path.name}` / `{csv_path.name}`")
 
     (OUTPUT_DIR / "README.md").write_text("\n".join(index_lines) + "\n", encoding="utf-8")

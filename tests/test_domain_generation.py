@@ -42,11 +42,10 @@ def test_variants_are_up_to_date_for_metadata_with_orders(tmp_path: Path) -> Non
                 "problem_id": "p1",
                 "task": "alpha",
                 "variants": VARIANT_NAMES,
+                "plan_action_order": ["a", "b"],
                 "variant_orders": {
-                    "canonical": ["a", "b", "c"],
-                    "disp_1": ["c", "b", "a"],
-                    "disp_2": ["c", "a", "b"],
-                    "disp_3": ["c", "b", "a"],
+                    variant_name: ["a", "b", "c"]
+                    for variant_name in VARIANT_NAMES
                 },
             }
         ),

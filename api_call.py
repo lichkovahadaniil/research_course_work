@@ -15,14 +15,16 @@ load_dotenv()
 MODEL_ALIASES = {
     "deepseek-v4-flash": "deepseek/deepseek-v4-flash",
     "glm-4.7-flash": "z-ai/glm-4.7-flash",
+    "grok-4.1-fast": "x-ai/grok-4.1-fast",
+    "gpt-oss-120b": "openai/gpt-oss-120b"
 }
 MODEL_CONFIG = {
     "deepseek/deepseek-v4-flash": {
         "max_tokens": None,
         "supports_reasoning": True,
         "reasoning_effort": "high",
-        "temperature": 1.0,
-        "top_p": 1.0,
+        "temperature": 0.3,
+        "top_p": 0.9,
         "provider": {
             "order": ["Novita"],
             "allow_fallbacks": False,
@@ -32,14 +34,36 @@ MODEL_CONFIG = {
         "max_tokens": None,
         "supports_reasoning": True,
         "reasoning_effort": "high",
-        "temperature": 1.0,
-        "top_p": 0.95,
+        "temperature": 0.3,
+        "top_p": 0.9,
         "provider": {
             "order": ["DeepInfra"],
             "allow_fallbacks": False,
             "quantizations": ["bf16"],
         },
     },
+    "x-ai/grok-4.1-fast": {
+        "max_tokens": None,
+        "supports_reasoning": True,
+        "reasoning_effort": "low",
+        "temperature": 0.3,
+        "top_p": 0.9,
+        "provider": {
+            "order": ["xai"],
+            "allow_fallbacks": False,
+        },
+    },
+    "openai/gpt-oss-120b": {
+        "max_tokens": None,
+        "supports_reasoning": True,
+        "reasoning_effort": "low",
+        "temperature": 0.3,
+        "top_p": 0.9,
+        "provider": {
+            "order": ["google-vertex/global"],
+            "allow_fallbacks": False,
+        },
+    }
 }
 RETRYABLE_EXCEPTIONS = (Exception,)
 

@@ -51,6 +51,11 @@ TOY_PLAN = """(beta)
 (epsilon)
 """
 
+TOY_PLAN_SUBSET = """(beta)
+(delta)
+(beta)
+"""
+
 
 def extract_action_order(domain_path: Path) -> list[str]:
     return re.findall(r"\(\s*:action\s+([^\s)]+)", domain_path.read_text(encoding="utf-8"))
@@ -102,6 +107,34 @@ def test_shuffle_creates_canonical_and_dispersion_variants(tmp_path: Path) -> No
     assert kendall_tau_distance(canonical_order, extract_action_order(save_dir / "disp_3" / "domain.pddl")) == 10
 
 
+def test_shuffle_creates_plan_action_variants(tmp_path: Path) -> None:
+    domain_path = tmp_path / "domain.pddl"
+    problem_path = tmp_path / "p01.pddl"
+    optimal_plan_path = tmp_path / "p01.plan"
+    save_dir = tmp_path / "materials" / "toy" / "p01"
+
+    domain_path.write_text(TOY_DOMAIN, encoding="utf-8")
+    problem_path.write_text(TOY_PROBLEM, encoding="utf-8")
+    optimal_plan_path.write_text(TOY_PLAN_SUBSET, encoding="utf-8")
+
+    shuffle(domain_path, problem_path, optimal_plan_path, save_dir, seed=52, problem_id="p01")
+
+    assert extract_action_order(save_dir / "plan_front" / "domain.pddl") == [
+        "beta",
+        "delta",
+        "alpha",
+        "gamma",
+        "epsilon",
+    ]
+    assert extract_action_order(save_dir / "plan_scatter" / "domain.pddl") == [
+        "alpha",
+        "delta",
+        "gamma",
+        "beta",
+        "epsilon",
+    ]
+
+
 def test_shuffle_meta_contains_variant_orders(tmp_path: Path) -> None:
     domain_path = tmp_path / "domain.pddl"
     problem_path = tmp_path / "p01.pddl"
@@ -120,10 +153,13 @@ def test_shuffle_meta_contains_variant_orders(tmp_path: Path) -> None:
         "problem_id": "p01",
         "task": None,
         "variants": VARIANT_NAMES,
+        "plan_action_order": ["beta", "alpha", "gamma", "delta", "epsilon"],
         "variant_orders": {
             "canonical": ["alpha", "beta", "gamma", "delta", "epsilon"],
             "disp_1": ["delta", "alpha", "beta", "gamma", "epsilon"],
             "disp_2": ["epsilon", "delta", "alpha", "beta", "gamma"],
             "disp_3": ["epsilon", "delta", "gamma", "beta", "alpha"],
+            "plan_front": ["beta", "alpha", "gamma", "delta", "epsilon"],
+            "plan_scatter": ["epsilon", "delta", "gamma", "alpha", "beta"],
         },
     }
