@@ -5,10 +5,8 @@ DOMAIN_TYPES = ["logistics"]
 TASK_NAMES = ["alpha"]
 PROBLEM_IDS = [f"p{index}" for index in range(1, 21)]
 MODEL_NAMES = [
-    "deepseek-v4-flash",
-    "glm-4.7-flash",
-    "grok-4.1-fast",
-    "gpt-oss-120b"
+    "deepseek/deepseek-v4-flash",
+    "gpt-oss-120b",
 ]
 
 

@@ -3,6 +3,8 @@ from pathlib import Path
 
 from manual_model_run import model_output_dir_name, refresh_aggregate_for_model
 
+TEST_MODEL = "mistralai/mistral-small-2603"
+
 
 def write_result(order_dir: Path, run_id: int, model: str, metrics: dict, response_fields=None) -> None:
     result_dir = order_dir / str(run_id) / model_output_dir_name(model)
@@ -25,7 +27,7 @@ def test_refresh_aggregate_for_model_writes_mean_and_std(tmp_path: Path) -> None
     write_result(
         order_dir,
         1,
-        "deepseek-v4-flash",
+        TEST_MODEL,
         {
             "strict": {
                 "plan_length": 4,
@@ -47,7 +49,7 @@ def test_refresh_aggregate_for_model_writes_mean_and_std(tmp_path: Path) -> None
     write_result(
         order_dir,
         2,
-        "deepseek-v4-flash",
+        TEST_MODEL,
         {
             "strict": {
                 "plan_length": 6,
@@ -67,12 +69,12 @@ def test_refresh_aggregate_for_model_writes_mean_and_std(tmp_path: Path) -> None
         },
     )
 
-    refresh_aggregate_for_model(order_dir, "deepseek-v4-flash")
+    refresh_aggregate_for_model(order_dir, TEST_MODEL)
 
-    aggregate_path = order_dir / "aggregate" / f"{model_output_dir_name('deepseek-v4-flash')}.json"
+    aggregate_path = order_dir / "aggregate" / f"{model_output_dir_name(TEST_MODEL)}.json"
     payload = json.loads(aggregate_path.read_text(encoding="utf-8"))
 
-    assert payload["model"] == "deepseek-v4-flash"
+    assert payload["model"] == TEST_MODEL
     assert payload["run_count"] == 2
     assert payload["runs"] == [1, 2]
     assert payload["metrics"]["plan_length"]["count"] == 2

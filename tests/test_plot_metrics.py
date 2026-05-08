@@ -8,6 +8,8 @@ from plot_metrics import (
     summarize_records,
 )
 
+TEST_MODEL = "mistralai/mistral-small-2603"
+
 
 def write_result(root, domain, task, problem, variant, run_id, model, metrics, response_fields=None) -> None:
     from manual_model_run import model_output_dir_name
@@ -36,7 +38,7 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
         "p7",
         "canonical",
         1,
-        "deepseek-v4-flash",
+        TEST_MODEL,
         {
             "strict": {
                 "plan_length": 4,
@@ -62,7 +64,7 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
         "p7",
         "disp_1",
         2,
-        "deepseek-v4-flash",
+        TEST_MODEL,
         {
             "strict": {
                 "plan_length": None,
@@ -88,7 +90,7 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
         "p7",
         "disp_1",
         3,
-        "deepseek-v4-flash",
+        TEST_MODEL,
         {
             "strict": {
                 "plan_length": None,
@@ -154,9 +156,9 @@ def test_summarize_records_groups_by_variant_and_model() -> None:
 
     records = pd.DataFrame(
         [
-            {"variant": "canonical", "model": "deepseek-v4-flash", "plan_length": 10},
-            {"variant": "canonical", "model": "deepseek-v4-flash", "plan_length": 14},
-            {"variant": "disp_1", "model": "deepseek-v4-flash", "plan_length": 8},
+            {"variant": "canonical", "model": TEST_MODEL, "plan_length": 10},
+            {"variant": "canonical", "model": TEST_MODEL, "plan_length": 14},
+            {"variant": "disp_1", "model": TEST_MODEL, "plan_length": 8},
         ]
     )
 
@@ -174,19 +176,19 @@ def test_summarize_problem_type_records_keeps_orders_separate() -> None:
             {
                 "problem_type": "s01_l53",
                 "variant": "canonical",
-                "model": "deepseek-v4-flash",
+                "model": TEST_MODEL,
                 "plan_length": 10,
             },
             {
                 "problem_type": "s01_l53",
                 "variant": "canonical",
-                "model": "deepseek-v4-flash",
+                "model": TEST_MODEL,
                 "plan_length": 14,
             },
             {
                 "problem_type": "s01_l53",
                 "variant": "disp_1",
-                "model": "deepseek-v4-flash",
+                "model": TEST_MODEL,
                 "plan_length": 30,
             },
             {
@@ -201,18 +203,18 @@ def test_summarize_problem_type_records_keeps_orders_separate() -> None:
     summary = summarize_problem_type_records(records, "plan_length")
 
     assert len(summary) == 3
-    canonical_deepseek = summary[
+    canonical_test_model = summary[
         (summary["problem_type"] == "s01_l53")
         & (summary["variant"] == "canonical")
-        & (summary["model"] == "deepseek-v4-flash")
+        & (summary["model"] == TEST_MODEL)
     ]
-    disp_deepseek = summary[
+    disp_test_model = summary[
         (summary["problem_type"] == "s01_l53")
         & (summary["variant"] == "disp_1")
-        & (summary["model"] == "deepseek-v4-flash")
+        & (summary["model"] == TEST_MODEL)
     ]
-    assert canonical_deepseek["plan_length"].iloc[0] == 12
-    assert disp_deepseek["plan_length"].iloc[0] == 30
+    assert canonical_test_model["plan_length"].iloc[0] == 12
+    assert disp_test_model["plan_length"].iloc[0] == 30
 
 
 def test_build_reports_writes_problem_and_order_barplots(tmp_path, monkeypatch) -> None:
@@ -224,7 +226,7 @@ def test_build_reports_writes_problem_and_order_barplots(tmp_path, monkeypatch) 
         "p7",
         "canonical",
         1,
-        "deepseek-v4-flash",
+        TEST_MODEL,
         {
             "strict": {
                 "plan_length": 3,

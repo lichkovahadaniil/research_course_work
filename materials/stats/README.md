@@ -10,5 +10,4 @@ Binary metrics use exact McNemar tests. Numeric metrics use paired t-tests and s
 
 Files:
 - `deepseek-v4-flash_stats.json` / `deepseek-v4-flash_stats.md` / `deepseek-v4-flash_tests.csv`
-- `glm-4-7-flash_stats.json` / `glm-4-7-flash_stats.md` / `glm-4-7-flash_tests.csv`
-- `grok-4-1-fast_stats.json` / `grok-4-1-fast_stats.md` / `grok-4-1-fast_tests.csv`
+- `gpt-oss-120b_stats.json` / `gpt-oss-120b_stats.md` / `gpt-oss-120b_tests.csv`

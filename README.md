@@ -7,7 +7,7 @@ Minimal local pipeline for the generated `logistics` domain.
 - Domain: `logistics`
 - Tasks: `alpha`
 - Problems per task: `p1`-`p20`
-- Models: `deepseek-v4-flash` (`deepseek/deepseek-v4-flash`), `glm-4.7-flash` (`z-ai/glm-4.7-flash`)
+- Models: `glm-4.7-flash` (`z-ai/glm-4.7-flash`), `mistral-small` (`mistralai/mistral-small-2603`), `gemma-4` (`google/gemma-4-26b-a4b-it`, provider `DeepInfra` with `fp8`), `inclusionai/ling-2.6-flash`, `deepseek/deepseek-v4-flash` (provider `atlas-cloud` with `fp8`), `gpt-oss-120b` (`openai/gpt-oss-120b`, provider `DeepInfra` with `bf16`)
 - Variants per problem:
   - `canonical`
   - `disp_1`
@@ -38,11 +38,14 @@ python3 main.py prepare --force
 Run model jobs:
 
 ```bash
-python3 main.py models-run --models deepseek-v4-flash --orders canonical disp_3 --problems alpha p1 p2
-python3 main.py models-run --models deepseek-v4-flash glm-4.7-flash --orders canonical disp_1 disp_2 disp_3 --runs 5
-python3 main.py models-run --models deepseek-v4-flash --orders plan_front plan_scatter --problems alpha p1 p2 --runs 5
-python3 main.py models-run --models gpt-oss-120b --orders plan_front plan_scatter --runs 5 --start-run 6 --jobs 5
-python3 main.py models-run --models deepseek-v4-flash --orders canonical --problems alpha p1 p5 p20 --runs 4 --force
+python3 main.py models-run --models glm-4.7-flash --orders canonical disp_3 --problems alpha p1 p2
+python3 main.py models-run --models glm-4.7-flash mistral-small gemma-4 --orders canonical disp_1 disp_2 disp_3 --runs 5
+python3 main.py models-run --models mistral-small gemma-4 --orders plan_front plan_scatter --problems alpha p1 p2 --runs 5
+python3 main.py models-run --models gemma-4 --orders plan_front plan_scatter --runs 5 --start-run 6 --jobs 5
+python3 main.py models-run --models inclusionai/ling-2.6-flash --orders canonical --problems alpha p1 --runs 1
+python3 main.py models-run --models deepseek/deepseek-v4-flash --orders canonical --problems alpha p1 --runs 1
+python3 main.py models-run --models gpt-oss-120b --orders canonical --problems alpha p1 --runs 1
+python3 main.py models-run --models mistral-small --orders canonical --problems alpha p1 p5 p20 --runs 4 --force
 ```
 
 In `--problems`, each task name scopes the following problem ids. A task without explicit ids selects all `p1`-`p20` for that task.

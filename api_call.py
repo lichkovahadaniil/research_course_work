@@ -13,44 +13,20 @@ load_dotenv()
 
 
 MODEL_ALIASES = {
-    "deepseek-v4-flash": "deepseek/deepseek-v4-flash",
-    "glm-4.7-flash": "z-ai/glm-4.7-flash",
-    "grok-4.1-fast": "x-ai/grok-4.1-fast",
-    "gpt-oss-120b": "openai/gpt-oss-120b"
+    "deepseek/deepseek-v4-flash": "deepseek/deepseek-v4-flash",
+    "gpt-oss-120b": "openai/gpt-oss-120b",
 }
 MODEL_CONFIG = {
     "deepseek/deepseek-v4-flash": {
         "max_tokens": None,
         "supports_reasoning": True,
-        "reasoning_effort": "high",
+        "reasoning_effort": "medium",
         "temperature": 0.3,
         "top_p": 0.9,
         "provider": {
-            "order": ["Novita"],
+            "order": ["atlas-cloud"],
             "allow_fallbacks": False,
-        },
-    },
-    "z-ai/glm-4.7-flash": {
-        "max_tokens": None,
-        "supports_reasoning": True,
-        "reasoning_effort": "high",
-        "temperature": 0.3,
-        "top_p": 0.9,
-        "provider": {
-            "order": ["DeepInfra"],
-            "allow_fallbacks": False,
-            "quantizations": ["bf16"],
-        },
-    },
-    "x-ai/grok-4.1-fast": {
-        "max_tokens": None,
-        "supports_reasoning": True,
-        "reasoning_effort": "low",
-        "temperature": 0.3,
-        "top_p": 0.9,
-        "provider": {
-            "order": ["xai"],
-            "allow_fallbacks": False,
+            "quantizations": ["fp8"],
         },
     },
     "openai/gpt-oss-120b": {
@@ -60,10 +36,11 @@ MODEL_CONFIG = {
         "temperature": 0.3,
         "top_p": 0.9,
         "provider": {
-            "order": ["google-vertex/global"],
+            "order": ["DeepInfra"],
             "allow_fallbacks": False,
+            "quantizations": ["bf16"],
         },
-    }
+    },
 }
 RETRYABLE_EXCEPTIONS = (Exception,)
 
@@ -103,7 +80,7 @@ def _read_text(path: str | Path) -> str:
 def call_openrouter(
     domain_path: str | Path,
     problem_path: str | Path,
-    model: str = "deepseek-v4-flash",
+    model: str = "glm-4.7-flash",
     reasoning_enabled: bool = True,
     fix_plan_format_enabled: bool = False,
 ) -> dict[str, object]:
@@ -143,6 +120,7 @@ Problem:
 {_read_text(problem_path)}
 
 Return ONLY the plan.
+You must give an answer.
 Each line must contain exactly one action in PDDL format (use brackets):
 (action-name arg1 arg2 ...)
 """
