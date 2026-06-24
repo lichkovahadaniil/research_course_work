@@ -15,6 +15,7 @@ load_dotenv()
 MODEL_ALIASES = {
     "deepseek/deepseek-v4-flash": "deepseek/deepseek-v4-flash",
     "gpt-oss-120b": "openai/gpt-oss-120b",
+    "nemotron-3-super": "nvidia/nemotron-3-super-120b-a12b",
 }
 MODEL_CONFIG = {
     "deepseek/deepseek-v4-flash": {
@@ -32,13 +33,25 @@ MODEL_CONFIG = {
     "openai/gpt-oss-120b": {
         "max_tokens": None,
         "supports_reasoning": True,
-        "reasoning_effort": "low",
+        "reasoning_effort": "medium",
         "temperature": 0.3,
         "top_p": 0.9,
         "provider": {
             "order": ["DeepInfra"],
             "allow_fallbacks": False,
             "quantizations": ["bf16"],
+        },
+    },
+    "nvidia/nemotron-3-super-120b-a12b": {
+        "max_tokens": None,
+        "supports_reasoning": True,
+        "reasoning_effort": "medium",
+        "temperature": 0.3,
+        "top_p": 0.9,
+        "provider": {
+            "order": ["dekallm"],
+            "allow_fallbacks": False,
+            "quantizations": ["fp8"],
         },
     },
 }

@@ -4,7 +4,7 @@ Baseline order: `canonical`.
 Canonical compared orders: `disp_1`, `disp_2`, `disp_3`, `plan_front`, `plan_scatter`.
 Extra comparisons: `plan_front` vs `plan_scatter`.
 
-Pairing unit: `(problem, run)` within this model. Each test only uses pairs where both the baseline and compared order have an available value.
+Pairing unit for McNemar and numeric tests: `(problem, run)` within this model. Conditional reachability is summarized per order among executable plans only.
 
 ## Binary Metrics
 
@@ -30,12 +30,19 @@ Exact McNemar test is used for binary outcomes. `b` means compared order succeed
 | non_executable_failure | canonical -> plan_front | 300 | 0.5833 | 0.5500 | 50 | 60 | -0.0333 | 0.8333 | 0.390927 | 0.781855 |
 | non_executable_failure | canonical -> plan_scatter | 300 | 0.5833 | 0.5533 | 61 | 70 | -0.0300 | 0.8714 | 0.484720 | 0.781855 |
 | non_executable_failure | plan_front -> plan_scatter | 300 | 0.5500 | 0.5533 | 67 | 66 | 0.0033 | 1.0152 | 1.000000 | 1.000000 |
-| conditional_reachability | canonical -> disp_1 | 63 | 0.4127 | 0.3651 | 2 | 5 | -0.0476 | 0.4000 | 0.453125 | 0.906250 |
-| conditional_reachability | canonical -> disp_2 | 60 | 0.4167 | 0.3333 | 3 | 8 | -0.0833 | 0.3750 | 0.226562 | 0.679688 |
-| conditional_reachability | canonical -> disp_3 | 53 | 0.3774 | 0.1887 | 0 | 10 | -0.1887 | 0.0000 | 0.001953 | 0.009766 |
-| conditional_reachability | canonical -> plan_front | 75 | 0.4933 | 0.5200 | 6 | 4 | 0.0267 | 1.5000 | 0.753906 | 0.906250 |
-| conditional_reachability | canonical -> plan_scatter | 64 | 0.4688 | 0.3281 | 0 | 9 | -0.1406 | 0.0000 | 0.003906 | 0.015625 |
-| conditional_reachability | plan_front -> plan_scatter | 68 | 0.4853 | 0.3676 | 2 | 10 | -0.1176 | 0.2000 | 0.038574 | 0.038574 |
+
+## Conditional Binary Metrics
+
+`conditional_reachability` is computed as goal reached among executable plans for each order separately. Non-executable plans are excluded from that order's denominator. The comparison table uses Fisher's exact test on those executable-plan counts.
+
+| metric | comparison | baseline n | compared n | baseline | compared | baseline success/fail | compared success/fail | risk diff | OR | p | p Holm |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| conditional_reachability | canonical -> disp_1 | 125 | 112 | 0.3120 | 0.2232 | 39/86 | 25/87 | -0.0888 | 0.6337 | 0.143671 | 0.287343 |
+| conditional_reachability | canonical -> disp_2 | 125 | 107 | 0.3120 | 0.1963 | 39/86 | 21/86 | -0.1157 | 0.5385 | 0.051141 | 0.153424 |
+| conditional_reachability | canonical -> disp_3 | 125 | 95 | 0.3120 | 0.1263 | 39/86 | 12/83 | -0.1857 | 0.3188 | 0.001224 | 0.006121 |
+| conditional_reachability | canonical -> plan_front | 125 | 135 | 0.3120 | 0.3407 | 39/86 | 46/89 | 0.0287 | 1.1397 | 0.691757 | 0.691757 |
+| conditional_reachability | canonical -> plan_scatter | 125 | 134 | 0.3120 | 0.1940 | 39/86 | 26/108 | -0.1180 | 0.5309 | 0.032001 | 0.128003 |
+| conditional_reachability | plan_front -> plan_scatter | 135 | 134 | 0.3407 | 0.1940 | 46/89 | 26/108 | -0.1467 | 0.4658 | 0.008666 | 0.008666 |
 
 ## Numeric Metrics
 
@@ -107,7 +114,7 @@ Runs are averaged within each problem first. The test unit is the problem, not a
 | reachability | plan_front -> plan_scatter | 20 | 0.1533 | 0.0867 | -0.0667 | [-0.1500, -0.0100] | 0.062500 |
 | executability | plan_front -> plan_scatter | 20 | 0.4500 | 0.4467 | -0.0033 | [-0.1167, 0.1000] | 1.000000 |
 | non_executable_failure | plan_front -> plan_scatter | 20 | 0.5500 | 0.5533 | 0.0033 | [-0.1000, 0.1167] | 1.000000 |
-| conditional_reachability | plan_front -> plan_scatter | 16 | 0.1973 | 0.1527 | -0.0446 | [-0.1289, 0.0000] | 0.500000 |
+| conditional_reachability | plan_front -> plan_scatter | 19 | 0.1720 | 0.1291 | -0.0429 | [-0.1150, 0.0018] | 0.187500 |
 | plan_length | plan_front -> plan_scatter | 4 | 8.2917 | 8.5000 | 0.2083 | [-0.1250, 0.7500] | 1.000000 |
 | optimality_ratio | plan_front -> plan_scatter | 4 | 1.0046 | 1.0250 | 0.0204 | [-0.0139, 0.0750] | 1.000000 |
 | first_failure_step | plan_front -> plan_scatter | 16 | 4.2062 | 2.8729 | -1.3334 | [-2.0768, -0.6468] | 0.002319 |

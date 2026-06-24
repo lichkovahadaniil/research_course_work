@@ -7,6 +7,7 @@ PROBLEM_IDS = [f"p{index}" for index in range(1, 21)]
 MODEL_NAMES = [
     "deepseek/deepseek-v4-flash",
     "gpt-oss-120b",
+    "nemotron-3-super",
 ]
 
 

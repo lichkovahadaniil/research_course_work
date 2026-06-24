@@ -1,14 +1,15 @@
 import json
 
-from experiment_config import ProblemRef
+from experiment_config import MODEL_NAMES, ProblemRef
 from plot_metrics import (
     build_records,
     build_reports,
+    summarize_confidence_intervals,
     summarize_problem_type_records,
     summarize_records,
 )
 
-TEST_MODEL = "mistralai/mistral-small-2603"
+TEST_MODEL = MODEL_NAMES[0]
 
 
 def write_result(root, domain, task, problem, variant, run_id, model, metrics, response_fields=None) -> None:
@@ -217,6 +218,46 @@ def test_summarize_problem_type_records_keeps_orders_separate() -> None:
     assert disp_test_model["plan_length"].iloc[0] == 30
 
 
+def test_summarize_confidence_intervals_calculates_numeric_and_rate_intervals() -> None:
+    import pandas as pd
+
+    numeric_records = pd.DataFrame(
+        [
+            {"variant": "canonical", "model": TEST_MODEL, "plan_length": 10},
+            {"variant": "canonical", "model": TEST_MODEL, "plan_length": 12},
+            {"variant": "canonical", "model": TEST_MODEL, "plan_length": 14},
+            {"variant": "canonical", "model": TEST_MODEL, "plan_length": 16},
+        ]
+    )
+    numeric_summary = summarize_confidence_intervals(
+        numeric_records,
+        {"slug": "plan_length", "title": "Plan Length", "rate": False},
+    )
+
+    assert numeric_summary["mean"].iloc[0] == 13
+    assert numeric_summary["n"].iloc[0] == 4
+    assert numeric_summary["ci_method"].iloc[0] == "t_mean_95"
+    assert numeric_summary["ci95_low"].iloc[0] < 13 < numeric_summary["ci95_high"].iloc[0]
+
+    rate_records = pd.DataFrame(
+        [
+            {"variant": "canonical", "model": TEST_MODEL, "reachability": 1.0},
+            {"variant": "canonical", "model": TEST_MODEL, "reachability": 1.0},
+            {"variant": "canonical", "model": TEST_MODEL, "reachability": 0.0},
+        ]
+    )
+    rate_summary = summarize_confidence_intervals(
+        rate_records,
+        {"slug": "reachability", "title": "Reachability", "rate": True},
+    )
+
+    assert rate_summary["mean"].iloc[0] == 2 / 3
+    assert rate_summary["n"].iloc[0] == 3
+    assert rate_summary["ci_method"].iloc[0] == "wilson_score_95"
+    assert 0 <= rate_summary["ci95_low"].iloc[0] < 2 / 3
+    assert 2 / 3 < rate_summary["ci95_high"].iloc[0] <= 1
+
+
 def test_build_reports_writes_problem_and_order_barplots(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     write_result(
@@ -258,6 +299,24 @@ def test_build_reports_writes_problem_and_order_barplots(tmp_path, monkeypatch) 
         / "graph"
         / "alpha"
         / "p7"
+        / "plan_length_confidence_intervals.png"
+    ).exists()
+    assert (
+        tmp_path
+        / "materials"
+        / "logistics"
+        / "graph"
+        / "alpha"
+        / "p7"
+        / "confidence_intervals.csv"
+    ).exists()
+    assert (
+        tmp_path
+        / "materials"
+        / "logistics"
+        / "graph"
+        / "alpha"
+        / "p7"
         / "completion_token_breakdown_barplot.png"
     ).exists()
     assert (
@@ -272,6 +331,44 @@ def test_build_reports_writes_problem_and_order_barplots(tmp_path, monkeypatch) 
         / "materials"
         / "logistics"
         / "graph"
+        / "plan_length_by_order_confidence_intervals.png"
+    ).exists()
+    assert (
+        tmp_path
+        / "materials"
+        / "logistics"
+        / "graph"
+        / "confidence_intervals_by_order.csv"
+    ).exists()
+    assert (
+        tmp_path
+        / "materials"
+        / "logistics"
+        / "graph"
+        / "completion_token_breakdown_by_order_barplot.png"
+    ).exists()
+    assert (
+        tmp_path
+        / "materials"
+        / "logistics"
+        / "graph"
+        / "design"
+        / "plan_length_by_order_barplot.png"
+    ).exists()
+    assert (
+        tmp_path
+        / "materials"
+        / "logistics"
+        / "graph"
+        / "design"
+        / "plan_length_by_order_confidence_intervals.png"
+    ).exists()
+    assert (
+        tmp_path
+        / "materials"
+        / "logistics"
+        / "graph"
+        / "design"
         / "completion_token_breakdown_by_order_barplot.png"
     ).exists()
     assert not (tmp_path / "materials" / "logistics" / "graph" / "by_problem_type").exists()

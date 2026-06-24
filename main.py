@@ -4,6 +4,24 @@ import subprocess
 import sys
 from pathlib import Path
 
+
+def add_local_venv_site_packages() -> None:
+    venv_lib = Path(__file__).with_name("venv") / "lib"
+    if not venv_lib.exists():
+        return
+
+    current_python = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    site_packages = venv_lib / current_python / "site-packages"
+    if not site_packages.exists():
+        return
+
+    site_packages_path = str(site_packages)
+    if site_packages_path not in sys.path:
+        sys.path.insert(0, site_packages_path)
+
+
+add_local_venv_site_packages()
+
 from domain_generation import generate_paths, process_domains
 from experiment_config import DOMAIN_TYPES, MODEL_NAMES, PROBLEM_IDS, PROBLEM_REFS, TASK_NAMES, ProblemRef
 from manual_model_run import model_output_dir_name
@@ -171,9 +189,11 @@ def prepare_with_force(force: bool) -> None:
 
 
 def report() -> None:
+    from materials.stats.run_statistical_tests import main as build_statistical_tests
     from plot_metrics import build_reports
 
     build_reports(DOMAIN_TYPES, PROBLEM_REFS)
+    build_statistical_tests()
 
 
 def build_parser() -> argparse.ArgumentParser:

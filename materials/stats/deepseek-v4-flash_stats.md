@@ -4,7 +4,7 @@ Baseline order: `canonical`.
 Canonical compared orders: `disp_1`, `disp_2`, `disp_3`, `plan_front`, `plan_scatter`.
 Extra comparisons: `plan_front` vs `plan_scatter`.
 
-Pairing unit: `(problem, run)` within this model. Each test only uses pairs where both the baseline and compared order have an available value.
+Pairing unit for McNemar and numeric tests: `(problem, run)` within this model. Conditional reachability is summarized per order among executable plans only.
 
 ## Binary Metrics
 
@@ -30,12 +30,19 @@ Exact McNemar test is used for binary outcomes. `b` means compared order succeed
 | non_executable_failure | canonical -> plan_front | 300 | 0.3567 | 0.3833 | 56 | 48 | 0.0267 | 1.1667 | 0.492645 | 1.000000 |
 | non_executable_failure | canonical -> plan_scatter | 300 | 0.3567 | 0.3600 | 51 | 50 | 0.0033 | 1.0200 | 1.000000 | 1.000000 |
 | non_executable_failure | plan_front -> plan_scatter | 300 | 0.3833 | 0.3600 | 53 | 60 | -0.0233 | 0.8833 | 0.572656 | 0.572656 |
-| conditional_reachability | canonical -> disp_1 | 143 | 0.8671 | 0.8951 | 16 | 12 | 0.0280 | 1.3333 | 0.571588 | 1.000000 |
-| conditional_reachability | canonical -> disp_2 | 154 | 0.8636 | 0.8312 | 13 | 18 | -0.0325 | 0.7222 | 0.473130 | 1.000000 |
-| conditional_reachability | canonical -> disp_3 | 123 | 0.9106 | 0.7561 | 9 | 28 | -0.1545 | 0.3214 | 0.002563 | 0.012816 |
-| conditional_reachability | canonical -> plan_front | 137 | 0.8832 | 0.7883 | 12 | 25 | -0.0949 | 0.4800 | 0.047031 | 0.188124 |
-| conditional_reachability | canonical -> plan_scatter | 142 | 0.8662 | 0.8451 | 16 | 19 | -0.0211 | 0.8421 | 0.735879 | 1.000000 |
-| conditional_reachability | plan_front -> plan_scatter | 132 | 0.8636 | 0.8712 | 14 | 13 | 0.0076 | 1.0769 | 1.000000 | 1.000000 |
+
+## Conditional Binary Metrics
+
+`conditional_reachability` is computed as goal reached among executable plans for each order separately. Non-executable plans are excluded from that order's denominator. The comparison table uses Fisher's exact test on those executable-plan counts.
+
+| metric | comparison | baseline n | compared n | baseline | compared | baseline success/fail | compared success/fail | risk diff | OR | p | p Holm |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| conditional_reachability | canonical -> disp_1 | 193 | 200 | 0.8342 | 0.8600 | 161/32 | 172/28 | 0.0258 | 1.2209 | 0.486936 | 1.000000 |
+| conditional_reachability | canonical -> disp_2 | 193 | 211 | 0.8342 | 0.7962 | 161/32 | 168/43 | -0.0380 | 0.7765 | 0.370531 | 1.000000 |
+| conditional_reachability | canonical -> disp_3 | 193 | 164 | 0.8342 | 0.7195 | 161/32 | 118/46 | -0.1147 | 0.5099 | 0.010201 | 0.051006 |
+| conditional_reachability | canonical -> plan_front | 193 | 185 | 0.8342 | 0.7892 | 161/32 | 146/39 | -0.0450 | 0.7441 | 0.292967 | 1.000000 |
+| conditional_reachability | canonical -> plan_scatter | 193 | 192 | 0.8342 | 0.7969 | 161/32 | 153/39 | -0.0373 | 0.7797 | 0.360440 | 1.000000 |
+| conditional_reachability | plan_front -> plan_scatter | 185 | 192 | 0.7892 | 0.7969 | 146/39 | 153/39 | 0.0077 | 1.0479 | 0.899117 | 0.899117 |
 
 ## Numeric Metrics
 
@@ -107,7 +114,7 @@ Runs are averaged within each problem first. The test unit is the problem, not a
 | reachability | plan_front -> plan_scatter | 20 | 0.4867 | 0.5100 | 0.0233 | [-0.0500, 0.1000] | 0.605469 |
 | executability | plan_front -> plan_scatter | 20 | 0.6167 | 0.6400 | 0.0233 | [-0.0500, 0.1033] | 0.631592 |
 | non_executable_failure | plan_front -> plan_scatter | 20 | 0.3833 | 0.3600 | -0.0233 | [-0.1033, 0.0500] | 0.631592 |
-| conditional_reachability | plan_front -> plan_scatter | 18 | 0.7894 | 0.7208 | -0.0685 | [-0.2778, 0.1241] | 0.535645 |
+| conditional_reachability | plan_front -> plan_scatter | 20 | 0.7096 | 0.7522 | 0.0427 | [-0.0549, 0.1438] | 0.427353 |
 | plan_length | plan_front -> plan_scatter | 19 | 30.1367 | 30.5054 | 0.3687 | [-0.5371, 1.4382] | 0.530762 |
 | optimality_ratio | plan_front -> plan_scatter | 19 | 1.1645 | 1.1665 | 0.0020 | [-0.0321, 0.0391] | 0.917725 |
 | first_failure_step | plan_front -> plan_scatter | 15 | 15.2341 | 12.5829 | -2.6512 | [-6.3796, 0.6981] | 0.178101 |

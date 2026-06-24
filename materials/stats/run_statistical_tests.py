@@ -33,7 +33,7 @@ BINARY_METRICS = {
 }
 CONDITIONAL_BINARY_METRICS = {
     "conditional_reachability": (
-        "Goal reached among pairs where both orders produced executable plans."
+        "Goal reached among executable plans; non-executable plans are excluded per order."
     ),
 }
 NUMERIC_METRICS = {
@@ -62,6 +62,44 @@ def exact_mcnemar_p(order_only: int, baseline_only: int) -> float:
         for k in range(0, min(order_only, baseline_only) + 1)
     ) / (2**discordant)
     return min(1.0, 2.0 * tail)
+
+
+def log_choose(n: int, k: int) -> float:
+    if k < 0 or k > n:
+        return -math.inf
+    return math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1)
+
+
+def fisher_exact_two_sided_p(
+    row1_success: int,
+    row1_failure: int,
+    row2_success: int,
+    row2_failure: int,
+) -> float:
+    row1_total = row1_success + row1_failure
+    row2_total = row2_success + row2_failure
+    success_total = row1_success + row2_success
+    grand_total = row1_total + row2_total
+    if row1_total == 0 or row2_total == 0 or grand_total == 0:
+        return 1.0
+
+    def table_probability(row1_success_count: int) -> float:
+        return math.exp(
+            log_choose(row1_total, row1_success_count)
+            + log_choose(row2_total, success_total - row1_success_count)
+            - log_choose(grand_total, success_total)
+        )
+
+    lower = max(0, success_total - row2_total)
+    upper = min(row1_total, success_total)
+    observed = table_probability(row1_success)
+    p_value = sum(
+        probability
+        for row1_success_count in range(lower, upper + 1)
+        for probability in [table_probability(row1_success_count)]
+        if probability <= observed + 1e-12
+    )
+    return min(1.0, p_value)
 
 
 def t_pdf(x: float, df: int) -> float:
@@ -367,6 +405,76 @@ def mcnemar_result(
     }
 
 
+def conditional_binary_result(
+    rows: list[dict[str, Any]],
+    model_name: str,
+    metric: str,
+    baseline_order: str,
+    compared_order: str,
+) -> dict[str, Any]:
+    baseline_values = [
+        float(row[metric])
+        for row in rows
+        if row["model"] == model_name
+        and row["order"] == baseline_order
+        and row.get(metric) is not None
+    ]
+    compared_values = [
+        float(row[metric])
+        for row in rows
+        if row["model"] == model_name
+        and row["order"] == compared_order
+        and row.get(metric) is not None
+    ]
+    baseline_successes = sum(1 for value in baseline_values if value == 1.0)
+    compared_successes = sum(1 for value in compared_values if value == 1.0)
+    baseline_n = len(baseline_values)
+    compared_n = len(compared_values)
+    baseline_failures = baseline_n - baseline_successes
+    compared_failures = compared_n - compared_successes
+    baseline_mean = baseline_successes / baseline_n if baseline_n else None
+    compared_mean = compared_successes / compared_n if compared_n else None
+    odds_denominator = compared_failures * baseline_successes
+
+    return {
+        "model": model_name,
+        "metric": metric,
+        "test": "fisher_exact_conditional_proportions",
+        "baseline_order": baseline_order,
+        "compared_order": compared_order,
+        "baseline_n": baseline_n,
+        "compared_n": compared_n,
+        "baseline_successes": baseline_successes,
+        "baseline_failures": baseline_failures,
+        "compared_successes": compared_successes,
+        "compared_failures": compared_failures,
+        "baseline_mean": baseline_mean,
+        "compared_mean": compared_mean,
+        "risk_difference": (
+            compared_mean - baseline_mean
+            if baseline_mean is not None and compared_mean is not None
+            else None
+        ),
+        "odds_ratio": (
+            None
+            if odds_denominator == 0
+            else (compared_successes * baseline_failures) / odds_denominator
+        ),
+        "odds_ratio_haldane": (
+            (compared_successes + 0.5)
+            * (baseline_failures + 0.5)
+            / ((compared_failures + 0.5) * (baseline_successes + 0.5))
+        ),
+        "p_value": fisher_exact_two_sided_p(
+            baseline_successes,
+            baseline_failures,
+            compared_successes,
+            compared_failures,
+        ),
+        "requires_both_executable": False,
+    }
+
+
 def numeric_result(
     rows: list[dict[str, Any]],
     model_name: str,
@@ -548,7 +656,7 @@ def markdown_report(model_name: str, payload: dict[str, Any]) -> str:
         + ".",
         f"Extra comparisons: {extra_comparison_text}.",
         "",
-        "Pairing unit: `(problem, run)` within this model. Each test only uses pairs where both the baseline and compared order have an available value.",
+        "Pairing unit for McNemar and numeric tests: `(problem, run)` within this model. Conditional reachability is summarized per order among executable plans only.",
         "",
         "## Binary Metrics",
         "",
@@ -578,6 +686,43 @@ def markdown_report(model_name: str, payload: dict[str, Any]) -> str:
                         str(result["n10_baseline_only_success"]),
                         format_number(result["risk_difference"]),
                         format_number(result["matched_odds_ratio"]),
+                        format_number(result["p_value"], 6),
+                        format_number(result["p_value_holm"], 6),
+                    ]
+                )
+                + " |"
+            )
+    lines.extend(
+        [
+            "",
+            "## Conditional Binary Metrics",
+            "",
+            "`conditional_reachability` is computed as goal reached among executable plans for each order separately. Non-executable plans are excluded from that order's denominator. The comparison table uses Fisher's exact test on those executable-plan counts.",
+            "",
+        ]
+    )
+    if payload["conditional_binary_tests"]:
+        lines.append(
+            "| metric | comparison | baseline n | compared n | baseline | compared | baseline success/fail | compared success/fail | risk diff | OR | p | p Holm |"
+        )
+        lines.append(
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+        )
+        for result in payload["conditional_binary_tests"]:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        result["metric"],
+                        comparison_label(result),
+                        str(result["baseline_n"]),
+                        str(result["compared_n"]),
+                        format_number(result["baseline_mean"]),
+                        format_number(result["compared_mean"]),
+                        f"{result['baseline_successes']}/{result['baseline_failures']}",
+                        f"{result['compared_successes']}/{result['compared_failures']}",
+                        format_number(result["risk_difference"]),
+                        format_number(result["odds_ratio"]),
                         format_number(result["p_value"], 6),
                         format_number(result["p_value_holm"], 6),
                     ]
@@ -692,38 +837,37 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
             result["p_value_holm"] = p_holm
         binary_tests.extend(extra_metric_results)
 
+    conditional_binary_tests: list[dict[str, Any]] = []
     for metric in CONDITIONAL_BINARY_METRICS:
         metric_results = [
-            mcnemar_result(
+            conditional_binary_result(
                 rows,
                 model_name,
                 metric,
                 BASELINE_ORDER,
                 order_name,
-                require_both_executable=True,
             )
             for order_name in compared_orders
         ]
         adjusted = holm_adjust(metric_results, "p_value")
         for result, p_holm in zip(metric_results, adjusted):
             result["p_value_holm"] = p_holm
-        binary_tests.extend(metric_results)
+        conditional_binary_tests.extend(metric_results)
 
         extra_metric_results = [
-            mcnemar_result(
+            conditional_binary_result(
                 rows,
                 model_name,
                 metric,
                 baseline_order,
                 compared_order,
-                require_both_executable=True,
             )
             for baseline_order, compared_order in extra_order_comparisons
         ]
         extra_adjusted = holm_adjust(extra_metric_results, "p_value")
         for result, p_holm in zip(extra_metric_results, extra_adjusted):
             result["p_value_holm"] = p_holm
-        binary_tests.extend(extra_metric_results)
+        conditional_binary_tests.extend(extra_metric_results)
 
     numeric_tests: list[dict[str, Any]] = []
     for metric in NUMERIC_METRICS:
@@ -773,7 +917,6 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
                 metric,
                 baseline_order,
                 compared_order,
-                require_both_executable=True,
             )
             for baseline_order, compared_order in extra_order_comparisons
         )
@@ -801,7 +944,7 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
         "extra_order_comparisons": extra_order_comparisons,
         "method_summary": {
             "binary": "Exact McNemar test on paired binary outcomes.",
-            "conditional_binary": "Exact McNemar test after filtering to pairs where both orders are executable.",
+            "conditional_binary": "Conditional reachability uses per-order executable-plan denominators and Fisher's exact test on those counts.",
             "numeric": "Paired t-test and paired sign-flip permutation test.",
             "problem_level": "Runs are averaged per problem before a paired sign-flip permutation test; bootstrap CI resamples problems.",
             "multiple_comparisons": "Holm adjustment across canonical-vs-order comparisons and extra comparisons within each model/metric/test family.",
@@ -812,6 +955,7 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
             **NUMERIC_METRICS,
         },
         "binary_tests": binary_tests,
+        "conditional_binary_tests": conditional_binary_tests,
         "numeric_tests": numeric_tests,
         "problem_level_tests": problem_level_tests,
     }
@@ -829,11 +973,11 @@ def main() -> None:
         "",
         "This folder contains reproducible order-effect tests for the saved local `llm_result.json` files. No model/API calls are made.",
         "",
-        "Pairing is done within each model by `(problem, run)`: each compared order is matched with `canonical` for the same problem and run.",
+        "McNemar and numeric tests are paired within each model by `(problem, run)`: each compared order is matched with `canonical` for the same problem and run.",
         "The report also includes the direct `plan_front` vs `plan_scatter` comparison when both orders are present.",
         "Problem-level tests average runs inside each problem before testing the paired problem differences.",
         "",
-        "Binary metrics use exact McNemar tests. Numeric metrics use paired t-tests and sign-flip permutation tests.",
+        "Binary metrics use exact McNemar tests. Conditional reachability uses executable-plan denominators per order and Fisher's exact test. Numeric metrics use paired t-tests and sign-flip permutation tests.",
         "",
         "Files:",
     ]
@@ -849,7 +993,12 @@ def main() -> None:
             encoding="utf-8",
         )
         md_path.write_text(markdown_report(model_name, payload), encoding="utf-8")
-        write_csv(csv_path, payload["binary_tests"] + payload["numeric_tests"])
+        write_csv(
+            csv_path,
+            payload["binary_tests"]
+            + payload["conditional_binary_tests"]
+            + payload["numeric_tests"],
+        )
         write_csv(
             OUTPUT_DIR / f"{slug}_problem_level_tests.csv",
             [
