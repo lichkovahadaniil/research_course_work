@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from checker import build_metrics, legacy_validation, strict_validation
+from checker import _run_validator, _sanitize_plan_text_for_validation, build_metrics, legacy_validation, strict_validation
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -8,6 +8,59 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 def load_fixture(name: str) -> str:
     return (FIXTURE_DIR / name).read_text(encoding="utf-8")
+
+
+def test_sanitize_plan_text_for_validation_removes_non_action_wrapper() -> None:
+    plan_text = """
+</think>
+
+(create_candidate shift_candidate_alpha)
+(allocate_vehicle_unit origin_availability_alpha vehicle_unit_alpha)
+"""
+
+    assert _sanitize_plan_text_for_validation(plan_text) == (
+        "(create_candidate shift_candidate_alpha)\n"
+        "(allocate_vehicle_unit origin_availability_alpha vehicle_unit_alpha)\n"
+    )
+
+
+def test_sanitize_plan_text_for_validation_leaves_clean_or_actionless_text_alone() -> None:
+    assert _sanitize_plan_text_for_validation("(create_candidate shift_candidate_alpha)\n") is None
+    assert _sanitize_plan_text_for_validation("I could not find a plan.\n") is None
+
+
+def test_run_validator_uses_sanitized_plan_copy(tmp_path: Path, monkeypatch) -> None:
+    plan_path = tmp_path / "llm.plan"
+    plan_path.write_text(
+        "\n</think>\n\n(create_candidate shift_candidate_alpha)\n",
+        encoding="utf-8",
+    )
+    captured: dict[str, str] = {}
+
+    class FakeProcess:
+        pid = 12345
+
+        def poll(self) -> int:
+            return 0
+
+        def kill(self) -> None:
+            pass
+
+    def fake_popen(command, stdout, **kwargs):
+        captured["plan_path"] = command[-1]
+        captured["plan_text"] = Path(command[-1]).read_text(encoding="utf-8")
+        stdout.write(f"Checking plan: {command[-1]}\nPlan size: 1\nPlan valid\n")
+        return FakeProcess()
+
+    monkeypatch.setattr("checker.subprocess.Popen", fake_popen)
+
+    output, timed_out = _run_validator("-v", "domain.pddl", "problem.pddl", plan_path)
+
+    assert timed_out is False
+    assert captured["plan_path"] != str(plan_path)
+    assert captured["plan_text"] == "(create_candidate shift_candidate_alpha)\n"
+    assert f"Checking plan: {plan_path}" in output
+    assert captured["plan_path"] not in output
 
 
 def test_strict_validation_parse_error(monkeypatch) -> None:

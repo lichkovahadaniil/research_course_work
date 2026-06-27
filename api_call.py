@@ -13,11 +13,20 @@ load_dotenv()
 
 
 MODEL_ALIASES = {
+    "cohere/north-mini-code:free": "cohere/north-mini-code:free",
     "deepseek/deepseek-v4-flash": "deepseek/deepseek-v4-flash",
     "gpt-oss-120b": "openai/gpt-oss-120b",
     "nemotron-3-super": "nvidia/nemotron-3-super-120b-a12b",
+    "tencent/hy3-preview": "tencent/hy3-preview",
 }
 MODEL_CONFIG = {
+    "cohere/north-mini-code:free": {
+        "max_tokens": None,
+        "supports_reasoning": True,
+        "reasoning_effort": "medium",
+        "temperature": 0.3,
+        "top_p": 0.9,
+    },
     "deepseek/deepseek-v4-flash": {
         "max_tokens": None,
         "supports_reasoning": True,
@@ -52,6 +61,18 @@ MODEL_CONFIG = {
             "order": ["dekallm"],
             "allow_fallbacks": False,
             "quantizations": ["fp8"],
+        },
+    },
+    "tencent/hy3-preview": {
+        "max_tokens": None,
+        "supports_reasoning": True,
+        "reasoning_effort": "high",
+        "temperature": 0.3,
+        "top_p": 0.9,
+        "provider": {
+            "order": ["gmicloud"],
+            "allow_fallbacks": False,
+            "quantizations": ["bf16"],
         },
     },
 }
@@ -134,7 +155,7 @@ Problem:
 
 Return ONLY the plan.
 You must give an answer.
-Each line must contain exactly one action in PDDL format (use brackets):
+Each line must contain exactly one action in PDDL format. Also use brackets "()":
 (action-name arg1 arg2 ...)
 """
 

@@ -12,24 +12,24 @@ Exact McNemar test is used for binary outcomes. `b` means compared order succeed
 
 | metric | comparison | n | baseline | compared | b | c | risk diff | matched OR | p | p Holm |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| reachability | canonical -> disp_1 | 100 | 0.1500 | 0.1500 | 9 | 9 | 0.0000 | 1.0000 | 1.000000 | 1.000000 |
-| reachability | canonical -> disp_2 | 100 | 0.1500 | 0.1700 | 10 | 8 | 0.0200 | 1.2500 | 0.814529 | 1.000000 |
-| reachability | canonical -> disp_3 | 100 | 0.1500 | 0.1500 | 8 | 8 | 0.0000 | 1.0000 | 1.000000 | 1.000000 |
-| reachability | canonical -> plan_front | 100 | 0.1500 | 0.3200 | 22 | 5 | 0.1700 | 4.4000 | 0.001514 | 0.007569 |
-| reachability | canonical -> plan_scatter | 100 | 0.1500 | 0.1300 | 7 | 9 | -0.0200 | 0.7778 | 0.803619 | 1.000000 |
-| reachability | plan_front -> plan_scatter | 100 | 0.3200 | 0.1300 | 4 | 23 | -0.1900 | 0.1739 | 0.000311 | 0.000311 |
-| executability | canonical -> disp_1 | 100 | 0.6900 | 0.6100 | 21 | 29 | -0.0800 | 0.7241 | 0.322236 | 0.966709 |
-| executability | canonical -> disp_2 | 100 | 0.6900 | 0.6300 | 20 | 26 | -0.0600 | 0.7692 | 0.461391 | 0.966709 |
-| executability | canonical -> disp_3 | 100 | 0.6900 | 0.5400 | 16 | 31 | -0.1500 | 0.5161 | 0.039986 | 0.159944 |
-| executability | canonical -> plan_front | 100 | 0.6900 | 0.6800 | 20 | 21 | -0.0100 | 0.9524 | 1.000000 | 1.000000 |
-| executability | canonical -> plan_scatter | 100 | 0.6900 | 0.5200 | 13 | 30 | -0.1700 | 0.4333 | 0.013718 | 0.068591 |
-| executability | plan_front -> plan_scatter | 100 | 0.6800 | 0.5200 | 20 | 36 | -0.1600 | 0.5556 | 0.044047 | 0.044047 |
-| non_executable_failure | canonical -> disp_1 | 100 | 0.3100 | 0.3900 | 29 | 21 | 0.0800 | 1.3810 | 0.322236 | 0.966709 |
-| non_executable_failure | canonical -> disp_2 | 100 | 0.3100 | 0.3700 | 26 | 20 | 0.0600 | 1.3000 | 0.461391 | 0.966709 |
-| non_executable_failure | canonical -> disp_3 | 100 | 0.3100 | 0.4600 | 31 | 16 | 0.1500 | 1.9375 | 0.039986 | 0.159944 |
-| non_executable_failure | canonical -> plan_front | 100 | 0.3100 | 0.3200 | 21 | 20 | 0.0100 | 1.0500 | 1.000000 | 1.000000 |
-| non_executable_failure | canonical -> plan_scatter | 100 | 0.3100 | 0.4800 | 30 | 13 | 0.1700 | 2.3077 | 0.013718 | 0.068591 |
-| non_executable_failure | plan_front -> plan_scatter | 100 | 0.3200 | 0.4800 | 36 | 20 | 0.1600 | 1.8000 | 0.044047 | 0.044047 |
+| reachability | canonical -> disp_1 | 170 | 0.1941 | 0.2059 | 17 | 15 | 0.0118 | 1.1333 | 0.860050 | 1.000000 |
+| reachability | canonical -> disp_2 | 170 | 0.1941 | 0.2176 | 16 | 12 | 0.0235 | 1.3333 | 0.571588 | 1.000000 |
+| reachability | canonical -> disp_3 | 170 | 0.1941 | 0.1529 | 13 | 20 | -0.0412 | 0.6500 | 0.296206 | 1.000000 |
+| reachability | canonical -> plan_front | 170 | 0.1882 | 0.3235 | 33 | 10 | 0.1353 | 3.3000 | 0.000606 | 0.003031 |
+| reachability | canonical -> plan_scatter | 168 | 0.1905 | 0.2083 | 17 | 14 | 0.0179 | 1.2143 | 0.720100 | 1.000000 |
+| reachability | plan_front -> plan_scatter | 169 | 0.3195 | 0.2071 | 12 | 31 | -0.1124 | 0.3871 | 0.005402 | 0.005402 |
+| executability | canonical -> disp_1 | 170 | 0.6471 | 0.6235 | 36 | 40 | -0.0235 | 0.9000 | 0.731009 | 1.000000 |
+| executability | canonical -> disp_2 | 170 | 0.6471 | 0.6176 | 31 | 36 | -0.0294 | 0.8611 | 0.625407 | 1.000000 |
+| executability | canonical -> disp_3 | 170 | 0.6471 | 0.5882 | 34 | 44 | -0.0588 | 0.7727 | 0.308168 | 1.000000 |
+| executability | canonical -> plan_front | 170 | 0.6412 | 0.7000 | 43 | 33 | 0.0588 | 1.3030 | 0.301872 | 1.000000 |
+| executability | canonical -> plan_scatter | 168 | 0.6488 | 0.5833 | 29 | 40 | -0.0655 | 0.7250 | 0.228400 | 1.000000 |
+| executability | plan_front -> plan_scatter | 169 | 0.6982 | 0.5799 | 33 | 53 | -0.1183 | 0.6226 | 0.039854 | 0.039854 |
+| non_executable_failure | canonical -> disp_1 | 170 | 0.3529 | 0.3765 | 40 | 36 | 0.0235 | 1.1111 | 0.731009 | 1.000000 |
+| non_executable_failure | canonical -> disp_2 | 170 | 0.3529 | 0.3824 | 36 | 31 | 0.0294 | 1.1613 | 0.625407 | 1.000000 |
+| non_executable_failure | canonical -> disp_3 | 170 | 0.3529 | 0.4118 | 44 | 34 | 0.0588 | 1.2941 | 0.308168 | 1.000000 |
+| non_executable_failure | canonical -> plan_front | 170 | 0.3588 | 0.3000 | 33 | 43 | -0.0588 | 0.7674 | 0.301872 | 1.000000 |
+| non_executable_failure | canonical -> plan_scatter | 168 | 0.3512 | 0.4167 | 40 | 29 | 0.0655 | 1.3793 | 0.228400 | 1.000000 |
+| non_executable_failure | plan_front -> plan_scatter | 169 | 0.3018 | 0.4201 | 53 | 33 | 0.1183 | 1.6061 | 0.039854 | 0.039854 |
 
 ## Conditional Binary Metrics
 
@@ -37,12 +37,12 @@ Exact McNemar test is used for binary outcomes. `b` means compared order succeed
 
 | metric | comparison | baseline n | compared n | baseline | compared | baseline success/fail | compared success/fail | risk diff | OR | p | p Holm |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| conditional_reachability | canonical -> disp_1 | 70 | 61 | 0.2286 | 0.2459 | 16/54 | 15/46 | 0.0173 | 1.1005 | 0.839342 | 1.000000 |
-| conditional_reachability | canonical -> disp_2 | 70 | 63 | 0.2286 | 0.2698 | 16/54 | 17/46 | 0.0413 | 1.2473 | 0.688361 | 1.000000 |
-| conditional_reachability | canonical -> disp_3 | 70 | 54 | 0.2286 | 0.2778 | 16/54 | 15/39 | 0.0492 | 1.2981 | 0.538671 | 1.000000 |
-| conditional_reachability | canonical -> plan_front | 70 | 68 | 0.2286 | 0.4706 | 16/54 | 32/36 | 0.2420 | 3.0000 | 0.004061 | 0.020305 |
-| conditional_reachability | canonical -> plan_scatter | 70 | 52 | 0.2286 | 0.2500 | 16/54 | 13/39 | 0.0214 | 1.1250 | 0.831606 | 1.000000 |
-| conditional_reachability | plan_front -> plan_scatter | 68 | 52 | 0.4706 | 0.2500 | 32/36 | 13/39 | -0.2206 | 0.3750 | 0.014519 | 0.014519 |
+| conditional_reachability | canonical -> disp_1 | 110 | 108 | 0.3000 | 0.3426 | 33/77 | 37/71 | 0.0426 | 1.2160 | 0.562418 | 1.000000 |
+| conditional_reachability | canonical -> disp_2 | 110 | 107 | 0.3000 | 0.3645 | 33/77 | 39/68 | 0.0645 | 1.3382 | 0.387056 | 1.000000 |
+| conditional_reachability | canonical -> disp_3 | 110 | 100 | 0.3000 | 0.2600 | 33/77 | 26/74 | -0.0400 | 0.8198 | 0.542141 | 1.000000 |
+| conditional_reachability | canonical -> plan_front | 110 | 120 | 0.3000 | 0.4667 | 33/77 | 56/64 | 0.1667 | 2.0417 | 0.010353 | 0.051765 |
+| conditional_reachability | canonical -> plan_scatter | 110 | 99 | 0.3000 | 0.3636 | 33/77 | 36/63 | 0.0636 | 1.3333 | 0.377546 | 1.000000 |
+| conditional_reachability | plan_front -> plan_scatter | 120 | 99 | 0.4667 | 0.3636 | 56/64 | 36/63 | -0.1030 | 0.6531 | 0.132562 | 0.132562 |
 
 ## Numeric Metrics
 
@@ -50,60 +50,60 @@ Numeric metrics use paired t-test plus paired sign-flip permutation p-value. Eff
 
 | metric | comparison | n | baseline mean | compared mean | mean diff | % diff | dz | p t-test | p perm | p perm Holm |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| plan_length | canonical -> disp_1 | 6 | 7.0000 | 7.0000 | 0.0000 | 0.0000 | 0.0000 | 1.000000 | 1.000000 | 1.000000 |
-| plan_length | canonical -> disp_2 | 7 | 7.4286 | 7.4286 | 0.0000 | 0.0000 | 0.0000 | 1.000000 | 1.000000 | 1.000000 |
-| plan_length | canonical -> disp_3 | 7 | 7.4286 | 7.4286 | 0.0000 | 0.0000 | 0.0000 | 1.000000 | 1.000000 | 1.000000 |
-| plan_length | canonical -> plan_front | 10 | 8.1000 | 8.1000 | 0.0000 | 0.0000 | 0.0000 | 1.000000 | 1.000000 | 1.000000 |
-| plan_length | canonical -> plan_scatter | 6 | 7.3333 | 7.3333 | 0.0000 | 0.0000 | 0.0000 | 1.000000 | 1.000000 | 1.000000 |
-| plan_length | plan_front -> plan_scatter | 9 | 7.6667 | 7.6667 | 0.0000 | 0.0000 | 0.0000 | 1.000000 | 1.000000 | 1.000000 |
-| optimality_ratio | canonical -> disp_1 | 6 | 1.0000 | 1.0000 | 0.0000 | 0.0000 | 0.0000 | 1.000000 | 1.000000 | 1.000000 |
-| optimality_ratio | canonical -> disp_2 | 7 | 1.0000 | 1.0000 | 0.0000 | 0.0000 | 0.0000 | 1.000000 | 1.000000 | 1.000000 |
-| optimality_ratio | canonical -> disp_3 | 7 | 1.0000 | 1.0000 | 0.0000 | 0.0000 | 0.0000 | 1.000000 | 1.000000 | 1.000000 |
-| optimality_ratio | canonical -> plan_front | 10 | 1.0000 | 1.0000 | 0.0000 | 0.0000 | 0.0000 | 1.000000 | 1.000000 | 1.000000 |
-| optimality_ratio | canonical -> plan_scatter | 6 | 1.0000 | 1.0000 | 0.0000 | 0.0000 | 0.0000 | 1.000000 | 1.000000 | 1.000000 |
-| optimality_ratio | plan_front -> plan_scatter | 9 | 1.0000 | 1.0000 | 0.0000 | 0.0000 | 0.0000 | 1.000000 | 1.000000 | 1.000000 |
-| first_failure_step | canonical -> disp_1 | 0 | NA | NA | NA | NA | NA | NA | NA | NA |
+| plan_length | canonical -> disp_1 | 18 | 9.5000 | 8.3333 | -1.1667 | -0.1228 | -0.2357 | 0.331333 | 1.000000 | 1.000000 |
+| plan_length | canonical -> disp_2 | 21 | 9.8571 | 8.7143 | -1.1429 | -0.1159 | -0.2498 | 0.265805 | 0.250000 | 1.000000 |
+| plan_length | canonical -> disp_3 | 13 | 7.5385 | 7.4615 | -0.0769 | -0.0102 | -0.2774 | 0.337049 | 1.000000 | 1.000000 |
+| plan_length | canonical -> plan_front | 22 | 9.7273 | 9.0455 | -0.6818 | -0.0701 | -0.1446 | 0.504973 | 1.000000 | 1.000000 |
+| plan_length | canonical -> plan_scatter | 18 | 8.2778 | 8.0000 | -0.2778 | -0.0336 | -0.2899 | 0.235514 | 0.500000 | 1.000000 |
+| plan_length | plan_front -> plan_scatter | 23 | 9.3478 | 9.1304 | -0.2174 | -0.0233 | -0.2556 | 0.233212 | 0.500000 | 0.500000 |
+| optimality_ratio | canonical -> disp_1 | 18 | 1.0778 | 1.0000 | -0.0778 | -0.0722 | -0.2357 | 0.331333 | 1.000000 | 1.000000 |
+| optimality_ratio | canonical -> disp_2 | 21 | 1.0856 | 1.0068 | -0.0788 | -0.0726 | -0.2581 | 0.250786 | 0.250000 | 1.000000 |
+| optimality_ratio | canonical -> disp_3 | 13 | 1.0085 | 1.0000 | -0.0085 | -0.0085 | -0.2774 | 0.337049 | 1.000000 | 1.000000 |
+| optimality_ratio | canonical -> plan_front | 22 | 1.0684 | 1.0191 | -0.0493 | -0.0461 | -0.1594 | 0.462843 | 1.000000 | 1.000000 |
+| optimality_ratio | canonical -> plan_scatter | 18 | 1.0220 | 1.0000 | -0.0220 | -0.0216 | -0.3114 | 0.204019 | 0.500000 | 1.000000 |
+| optimality_ratio | plan_front -> plan_scatter | 23 | 1.0314 | 1.0164 | -0.0150 | -0.0145 | -0.2485 | 0.246015 | 0.500000 | 0.500000 |
+| first_failure_step | canonical -> disp_1 | 1 | 4.0000 | 6.0000 | 2.0000 | 0.5000 | NA | NA | 1.000000 | 1.000000 |
 | first_failure_step | canonical -> disp_2 | 0 | NA | NA | NA | NA | NA | NA | NA | NA |
-| first_failure_step | canonical -> disp_3 | 0 | NA | NA | NA | NA | NA | NA | NA | NA |
+| first_failure_step | canonical -> disp_3 | 2 | 17.0000 | 4.0000 | -13.0000 | -0.7647 | -0.7071 | 0.500000 | 1.000000 | 1.000000 |
 | first_failure_step | canonical -> plan_front | 1 | 3.0000 | 4.0000 | 1.0000 | 0.3333 | NA | NA | 1.000000 | 1.000000 |
 | first_failure_step | canonical -> plan_scatter | 0 | NA | NA | NA | NA | NA | NA | NA | NA |
 | first_failure_step | plan_front -> plan_scatter | 2 | 40.0000 | 1.0000 | -39.0000 | -0.9750 | -1.9698 | 0.219409 | 0.500000 | 0.500000 |
-| prompt_tokens | canonical -> disp_1 | 100 | 9960.1600 | 10123.3200 | 163.1600 | 0.0164 | 0.1494 | 0.138371 | 0.142740 | 0.713700 |
-| prompt_tokens | canonical -> disp_2 | 100 | 9960.1600 | 9973.6400 | 13.4800 | 0.0014 | 0.0132 | 0.895217 | 0.891590 | 1.000000 |
-| prompt_tokens | canonical -> disp_3 | 100 | 9960.1600 | 9967.3100 | 7.1500 | 0.0007 | 0.0067 | 0.946347 | 0.932350 | 1.000000 |
-| prompt_tokens | canonical -> plan_front | 100 | 9960.1600 | 9881.2200 | -78.9400 | -0.0079 | -0.0839 | 0.403757 | 0.431290 | 1.000000 |
-| prompt_tokens | canonical -> plan_scatter | 100 | 9960.1600 | 9862.8800 | -97.2800 | -0.0098 | -0.1092 | 0.277478 | 0.283813 | 1.000000 |
-| prompt_tokens | plan_front -> plan_scatter | 100 | 9881.2200 | 9862.8800 | -18.3400 | -0.0019 | -0.0206 | 0.837126 | 0.831909 | 0.831909 |
-| completion_tokens | canonical -> disp_1 | 100 | 36999.8600 | 33874.8000 | -3125.0600 | -0.0845 | -0.0965 | 0.336962 | 0.337800 | 0.337800 |
-| completion_tokens | canonical -> disp_2 | 100 | 36999.8600 | 32287.4400 | -4712.4200 | -0.1274 | -0.1439 | 0.153269 | 0.155870 | 0.311740 |
-| completion_tokens | canonical -> disp_3 | 100 | 36999.8600 | 29827.3400 | -7172.5200 | -0.1939 | -0.1946 | 0.054495 | 0.055180 | 0.165540 |
-| completion_tokens | canonical -> plan_front | 100 | 36999.8600 | 28838.4400 | -8161.4200 | -0.2206 | -0.2436 | 0.016644 | 0.017050 | 0.068200 |
-| completion_tokens | canonical -> plan_scatter | 100 | 36999.8600 | 26608.9900 | -10390.8700 | -0.2808 | -0.3061 | 0.002844 | 0.002580 | 0.012900 |
-| completion_tokens | plan_front -> plan_scatter | 100 | 28838.4400 | 26608.9900 | -2229.4500 | -0.0773 | -0.0769 | 0.443863 | 0.442730 | 0.442730 |
-| reasoning_completion_tokens | canonical -> disp_1 | 100 | 36773.1000 | 33699.4100 | -3073.6900 | -0.0836 | -0.0953 | 0.342730 | 0.344140 | 0.344140 |
-| reasoning_completion_tokens | canonical -> disp_2 | 100 | 36773.1000 | 32129.6100 | -4643.4900 | -0.1263 | -0.1443 | 0.152093 | 0.154910 | 0.309820 |
-| reasoning_completion_tokens | canonical -> disp_3 | 100 | 36773.1000 | 29795.0200 | -6978.0800 | -0.1898 | -0.1895 | 0.060993 | 0.061380 | 0.184140 |
-| reasoning_completion_tokens | canonical -> plan_front | 100 | 36773.1000 | 27821.7700 | -8951.3300 | -0.2434 | -0.2623 | 0.010106 | 0.010140 | 0.040560 |
-| reasoning_completion_tokens | canonical -> plan_scatter | 100 | 36773.1000 | 26562.1400 | -10210.9600 | -0.2777 | -0.3019 | 0.003222 | 0.003430 | 0.017150 |
-| reasoning_completion_tokens | plan_front -> plan_scatter | 100 | 27821.7700 | 26562.1400 | -1259.6300 | -0.0453 | -0.0447 | 0.655941 | 0.659180 | 0.659180 |
-| raw_completion_tokens | canonical -> disp_1 | 100 | 226.7600 | 175.3900 | -51.3700 | -0.2265 | -0.0181 | 0.856511 | 1.000000 | 1.000000 |
-| raw_completion_tokens | canonical -> disp_2 | 100 | 226.7600 | 157.8300 | -68.9300 | -0.3040 | -0.0248 | 0.804401 | 1.000000 | 1.000000 |
-| raw_completion_tokens | canonical -> disp_3 | 100 | 226.7600 | 32.3200 | -194.4400 | -0.8575 | -0.0850 | 0.397498 | 1.000000 | 1.000000 |
-| raw_completion_tokens | canonical -> plan_front | 100 | 226.7600 | 1016.6700 | 789.9100 | 3.4835 | 0.1036 | 0.302941 | 0.500000 | 1.000000 |
-| raw_completion_tokens | canonical -> plan_scatter | 100 | 226.7600 | 46.8500 | -179.9100 | -0.7934 | -0.0776 | 0.439892 | 1.000000 | 1.000000 |
-| raw_completion_tokens | plan_front -> plan_scatter | 100 | 1016.6700 | 46.8500 | -969.8200 | -0.9539 | -0.1333 | 0.185432 | 0.500000 | 0.500000 |
-| total_tokens | canonical -> disp_1 | 100 | 46570.8100 | 43998.1200 | -2572.6900 | -0.0552 | -0.0782 | 0.435818 | 0.437490 | 0.437490 |
-| total_tokens | canonical -> disp_2 | 100 | 46570.8100 | 42261.0800 | -4309.7300 | -0.0925 | -0.1302 | 0.195844 | 0.198430 | 0.396860 |
-| total_tokens | canonical -> disp_3 | 100 | 46570.8100 | 39794.6500 | -6776.1600 | -0.1455 | -0.1802 | 0.074606 | 0.074720 | 0.224160 |
-| total_tokens | canonical -> plan_front | 100 | 46570.8100 | 38474.1900 | -8096.6200 | -0.1739 | -0.2385 | 0.018997 | 0.019450 | 0.077800 |
-| total_tokens | canonical -> plan_scatter | 100 | 46570.8100 | 36471.8700 | -10098.9400 | -0.2169 | -0.2928 | 0.004229 | 0.003850 | 0.019250 |
-| total_tokens | plan_front -> plan_scatter | 100 | 38474.1900 | 36471.8700 | -2002.3200 | -0.0520 | -0.0683 | 0.496223 | 0.495900 | 0.495900 |
-| duration_sec | canonical -> disp_1 | 100 | 384.1684 | 386.4816 | 2.3132 | 0.0060 | 0.0064 | 0.949100 | 0.952160 | 1.000000 |
-| duration_sec | canonical -> disp_2 | 100 | 384.1684 | 371.2508 | -12.9176 | -0.0336 | -0.0360 | 0.719676 | 0.722190 | 1.000000 |
-| duration_sec | canonical -> disp_3 | 100 | 384.1684 | 366.8080 | -17.3604 | -0.0452 | -0.0445 | 0.656959 | 0.658560 | 1.000000 |
-| duration_sec | canonical -> plan_front | 100 | 384.1684 | 350.9097 | -33.2587 | -0.0866 | -0.0874 | 0.384200 | 0.393340 | 1.000000 |
-| duration_sec | canonical -> plan_scatter | 100 | 384.1684 | 295.5429 | -88.6255 | -0.2307 | -0.2671 | 0.008830 | 0.007470 | 0.037350 |
-| duration_sec | plan_front -> plan_scatter | 100 | 350.9097 | 295.5429 | -55.3668 | -0.1578 | -0.2068 | 0.041245 | 0.041410 | 0.041410 |
+| prompt_tokens | canonical -> disp_1 | 170 | 9988.0941 | 10117.6118 | 129.5176 | 0.0130 | 0.1099 | 0.153864 | 0.155090 | 0.775450 |
+| prompt_tokens | canonical -> disp_2 | 170 | 9988.0941 | 9897.2529 | -90.8412 | -0.0091 | -0.0790 | 0.304291 | 0.303780 | 1.000000 |
+| prompt_tokens | canonical -> disp_3 | 170 | 9988.0941 | 10029.7118 | 41.6176 | 0.0042 | 0.0343 | 0.655241 | 0.652270 | 1.000000 |
+| prompt_tokens | canonical -> plan_front | 170 | 9988.0941 | 9950.8529 | -37.2412 | -0.0037 | -0.0311 | 0.685887 | 0.689490 | 1.000000 |
+| prompt_tokens | canonical -> plan_scatter | 168 | 10008.6905 | 9905.0893 | -103.6012 | -0.0104 | -0.0878 | 0.256993 | 0.259200 | 1.000000 |
+| prompt_tokens | plan_front -> plan_scatter | 169 | 9960.8698 | 9895.3432 | -65.5266 | -0.0066 | -0.0575 | 0.455560 | 0.457930 | 0.457930 |
+| completion_tokens | canonical -> disp_1 | 170 | 26458.4353 | 25303.9765 | -1154.4588 | -0.0436 | -0.0440 | 0.566703 | 0.566190 | 0.924900 |
+| completion_tokens | canonical -> disp_2 | 170 | 26460.4529 | 23741.2176 | -2719.2353 | -0.1028 | -0.1005 | 0.192071 | 0.191860 | 0.767440 |
+| completion_tokens | canonical -> disp_3 | 170 | 26460.4529 | 24690.2000 | -1770.2529 | -0.0669 | -0.0570 | 0.458130 | 0.456950 | 0.924900 |
+| completion_tokens | canonical -> plan_front | 170 | 26460.3882 | 24171.4941 | -2288.8941 | -0.0865 | -0.0782 | 0.309529 | 0.308300 | 0.924900 |
+| completion_tokens | canonical -> plan_scatter | 168 | 26771.6250 | 22534.9464 | -4236.6786 | -0.1583 | -0.1446 | 0.062685 | 0.061490 | 0.307450 |
+| completion_tokens | plan_front -> plan_scatter | 169 | 24313.5976 | 22402.4852 | -1911.1124 | -0.0786 | -0.0763 | 0.322368 | 0.320000 | 0.320000 |
+| reasoning_completion_tokens | canonical -> disp_1 | 170 | 26055.3824 | 24910.3765 | -1145.0059 | -0.0439 | -0.0438 | 0.568515 | 0.568360 | 0.913740 |
+| reasoning_completion_tokens | canonical -> disp_2 | 170 | 26057.4000 | 23379.5647 | -2677.8353 | -0.1028 | -0.1006 | 0.191372 | 0.190650 | 0.762600 |
+| reasoning_completion_tokens | canonical -> disp_3 | 170 | 26057.4000 | 24295.2706 | -1762.1294 | -0.0676 | -0.0571 | 0.457321 | 0.456870 | 0.913740 |
+| reasoning_completion_tokens | canonical -> plan_front | 170 | 26057.3353 | 23282.1765 | -2775.1588 | -0.1065 | -0.0931 | 0.226445 | 0.228870 | 0.762600 |
+| reasoning_completion_tokens | canonical -> plan_scatter | 168 | 26363.7738 | 22044.9464 | -4318.8274 | -0.1638 | -0.1495 | 0.054273 | 0.055040 | 0.275200 |
+| reasoning_completion_tokens | plan_front -> plan_scatter | 169 | 23419.0178 | 21915.3846 | -1503.6331 | -0.0642 | -0.0615 | 0.425494 | 0.428330 | 0.428330 |
+| raw_completion_tokens | canonical -> disp_1 | 170 | 403.0529 | 393.6000 | -9.4529 | -0.0235 | -0.0041 | 0.957019 | 0.945150 | 1.000000 |
+| raw_completion_tokens | canonical -> disp_2 | 170 | 403.0529 | 361.6529 | -41.4000 | -0.1027 | -0.0182 | 0.812479 | 0.794570 | 1.000000 |
+| raw_completion_tokens | canonical -> disp_3 | 170 | 403.0529 | 394.9294 | -8.1235 | -0.0202 | -0.0040 | 0.958760 | 0.978230 | 1.000000 |
+| raw_completion_tokens | canonical -> plan_front | 170 | 403.0529 | 889.3176 | 486.2647 | 1.2065 | 0.0821 | 0.285982 | 0.341130 | 1.000000 |
+| raw_completion_tokens | canonical -> plan_scatter | 168 | 407.8512 | 490.0000 | 82.1488 | 0.2014 | 0.0376 | 0.627004 | 0.711540 | 1.000000 |
+| raw_completion_tokens | plan_front -> plan_scatter | 169 | 894.5799 | 487.1006 | -407.4793 | -0.4555 | -0.0707 | 0.359304 | 0.485760 | 0.485760 |
+| total_tokens | canonical -> disp_1 | 170 | 36135.8412 | 35076.3824 | -1059.4588 | -0.0293 | -0.0400 | 0.602304 | 0.604280 | 0.774820 |
+| total_tokens | canonical -> disp_2 | 170 | 36137.8588 | 33326.9471 | -2810.9118 | -0.0778 | -0.1018 | 0.186293 | 0.185790 | 0.743160 |
+| total_tokens | canonical -> disp_3 | 170 | 36137.8588 | 34026.6647 | -2111.1941 | -0.0584 | -0.0667 | 0.385754 | 0.387410 | 0.774820 |
+| total_tokens | canonical -> plan_front | 170 | 36137.7941 | 33293.5588 | -2844.2353 | -0.0787 | -0.0964 | 0.210734 | 0.211270 | 0.743160 |
+| total_tokens | canonical -> plan_scatter | 168 | 36465.9286 | 31594.6190 | -4871.3095 | -0.1336 | -0.1637 | 0.035276 | 0.035190 | 0.175950 |
+| total_tokens | plan_front -> plan_scatter | 169 | 33440.7751 | 31457.4142 | -1983.3609 | -0.0593 | -0.0771 | 0.317795 | 0.318200 | 0.318200 |
+| duration_sec | canonical -> disp_1 | 170 | 494.6782 | 546.3344 | 51.6562 | 0.1044 | 0.0998 | 0.194816 | 0.200420 | 0.601260 |
+| duration_sec | canonical -> disp_2 | 170 | 495.4661 | 472.7988 | -22.6673 | -0.0457 | -0.0479 | 0.533105 | 0.535160 | 0.601260 |
+| duration_sec | canonical -> disp_3 | 170 | 495.4661 | 588.0383 | 92.5722 | 0.1868 | 0.1560 | 0.043507 | 0.042320 | 0.211600 |
+| duration_sec | canonical -> plan_front | 170 | 495.7771 | 594.5331 | 98.7559 | 0.1992 | 0.1529 | 0.047749 | 0.048190 | 0.211600 |
+| duration_sec | canonical -> plan_scatter | 168 | 498.1240 | 552.9859 | 54.8619 | 0.1101 | 0.0854 | 0.269980 | 0.271640 | 0.601260 |
+| duration_sec | plan_front -> plan_scatter | 169 | 596.9032 | 551.2667 | -45.6364 | -0.0765 | -0.0738 | 0.338504 | 0.341970 | 0.341970 |
 
 ## Problem-Level Tests
 
@@ -111,16 +111,16 @@ Runs are averaged within each problem first. The test unit is the problem, not a
 
 | metric | comparison | n problems | baseline mean | compared mean | mean diff | 95% CI | p perm |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| reachability | plan_front -> plan_scatter | 20 | 0.3200 | 0.1300 | -0.1900 | [-0.3200, -0.0700] | 0.012207 |
-| executability | plan_front -> plan_scatter | 20 | 0.6800 | 0.5200 | -0.1600 | [-0.3100, -0.0100] | 0.080322 |
-| non_executable_failure | plan_front -> plan_scatter | 20 | 0.3200 | 0.4800 | 0.1600 | [0.0100, 0.3100] | 0.080322 |
-| conditional_reachability | plan_front -> plan_scatter | 19 | 0.4070 | 0.2412 | -0.1658 | [-0.3123, -0.0333] | 0.031250 |
-| plan_length | plan_front -> plan_scatter | 6 | 15.5000 | 14.8889 | -0.6111 | [-1.6111, 0.0000] | 0.500000 |
-| optimality_ratio | plan_front -> plan_scatter | 6 | 1.0881 | 1.0492 | -0.0389 | [-0.1103, 0.0000] | 0.500000 |
-| first_failure_step | plan_front -> plan_scatter | 3 | 28.1111 | 4.5333 | -23.5778 | [-45.4000, 1.0000] | 0.500000 |
-| prompt_tokens | plan_front -> plan_scatter | 20 | 9881.2200 | 9862.8800 | -18.3400 | [-201.9903, 171.9747] | 0.875000 |
-| completion_tokens | plan_front -> plan_scatter | 20 | 28838.4400 | 26608.9900 | -2229.4500 | [-8637.4655, 4123.3677] | 0.513929 |
-| reasoning_completion_tokens | plan_front -> plan_scatter | 20 | 27821.7700 | 26562.1400 | -1259.6300 | [-7723.6925, 5093.0920] | 0.713362 |
-| raw_completion_tokens | plan_front -> plan_scatter | 20 | 1016.6700 | 46.8500 | -969.8200 | [-2532.0200, 93.6000] | 0.500000 |
-| total_tokens | plan_front -> plan_scatter | 20 | 38474.1900 | 36471.8700 | -2002.3200 | [-8448.2930, 4318.3312] | 0.557144 |
-| duration_sec | plan_front -> plan_scatter | 20 | 350.9097 | 295.5429 | -55.3668 | [-107.7958, -5.6647] | 0.052309 |
+| reachability | plan_front -> plan_scatter | 20 | 0.2832 | 0.1907 | -0.0925 | [-0.1913, -0.0038] | 0.092285 |
+| executability | plan_front -> plan_scatter | 20 | 0.6803 | 0.5811 | -0.0993 | [-0.2039, 0.0016] | 0.094208 |
+| non_executable_failure | plan_front -> plan_scatter | 20 | 0.3197 | 0.4189 | 0.0993 | [-0.0016, 0.2039] | 0.094208 |
+| conditional_reachability | plan_front -> plan_scatter | 20 | 0.3387 | 0.2917 | -0.0471 | [-0.1627, 0.0596] | 0.458008 |
+| plan_length | plan_front -> plan_scatter | 8 | 16.2292 | 15.5833 | -0.6458 | [-1.6458, -0.0625] | 0.250000 |
+| optimality_ratio | plan_front -> plan_scatter | 8 | 1.1021 | 1.0604 | -0.0418 | [-0.1132, -0.0024] | 0.250000 |
+| first_failure_step | plan_front -> plan_scatter | 5 | 22.8667 | 6.9000 | -15.9667 | [-27.6333, -4.3000] | 0.250000 |
+| prompt_tokens | plan_front -> plan_scatter | 20 | 10025.2282 | 9960.1905 | -65.0377 | [-285.7200, 142.2498] | 0.575851 |
+| completion_tokens | plan_front -> plan_scatter | 20 | 25302.2250 | 23337.0375 | -1965.1874 | [-5368.4876, 1353.3628] | 0.281710 |
+| reasoning_completion_tokens | plan_front -> plan_scatter | 20 | 24359.5008 | 22822.0355 | -1537.4653 | [-4977.4576, 1721.2852] | 0.399151 |
+| raw_completion_tokens | plan_front -> plan_scatter | 20 | 942.7242 | 515.0020 | -427.7222 | [-1379.9781, 286.7888] | 0.469955 |
+| total_tokens | plan_front -> plan_scatter | 20 | 34446.8657 | 32409.5406 | -2037.3251 | [-5874.6536, 1756.1443] | 0.331163 |
+| duration_sec | plan_front -> plan_scatter | 20 | 627.4491 | 575.7516 | -51.6975 | [-140.6180, 47.6185] | 0.310873 |

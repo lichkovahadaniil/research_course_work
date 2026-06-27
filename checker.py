@@ -22,6 +22,7 @@ FIRST_FAILURE_PATTERNS = (
     re.compile(r"Checking next happening \(time\s+(\d+)\)\s*[\r\n]+Plan failed", re.IGNORECASE),
 )
 ACTION_LINE_PATTERN = re.compile(r"^\s*\(([^;].*)\)\s*$")
+VALIDATION_ACTION_LINE_PATTERN = re.compile(r"^\s*\([^();\s]+(?:\s+[^();\s]+)*\)\s*$")
 
 
 def _read_text(path: str | Path) -> str:
@@ -43,6 +44,23 @@ def _read_plan_actions(plan_path: str | Path) -> list[str]:
         if ACTION_LINE_PATTERN.match(line):
             actions.append(" ".join(line.lower().split()))
     return actions
+
+
+def _sanitize_plan_text_for_validation(plan_text: str) -> str | None:
+    action_lines: list[str] = []
+    saw_non_action_content = False
+    for raw_line in plan_text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith(";"):
+            continue
+        if VALIDATION_ACTION_LINE_PATTERN.match(line):
+            action_lines.append(line)
+        else:
+            saw_non_action_content = True
+
+    if saw_non_action_content and action_lines:
+        return "\n".join(action_lines) + "\n"
+    return None
 
 
 def _extract_plan_length(output: str, plan_path: str | Path | None = None) -> int | None:
@@ -87,32 +105,47 @@ def _run_validator(
     problem_path: str | Path,
     plan_path: str | Path,
 ) -> tuple[str, bool]:
-    with tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8") as output_handle:
-        process = subprocess.Popen(
-            ["validate", flag, str(domain_path), str(problem_path), str(plan_path)],
-            stdout=output_handle,
-            stderr=subprocess.STDOUT,
-            text=True,
-            start_new_session=True,
-        )
+    validation_plan_path = str(plan_path)
+    sanitized_plan_handle = None
+    timed_out = False
+    sanitized_plan_text = _sanitize_plan_text_for_validation(_read_text(plan_path))
+    if sanitized_plan_text is not None:
+        sanitized_plan_handle = tempfile.NamedTemporaryFile(mode="w+", suffix=".plan", encoding="utf-8")
+        sanitized_plan_handle.write(sanitized_plan_text)
+        sanitized_plan_handle.flush()
+        validation_plan_path = sanitized_plan_handle.name
 
-        deadline = time.monotonic() + VALIDATE_TIMEOUT_SEC
-        timed_out = False
+    try:
+        with tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8") as output_handle:
+            process = subprocess.Popen(
+                ["validate", flag, str(domain_path), str(problem_path), validation_plan_path],
+                stdout=output_handle,
+                stderr=subprocess.STDOUT,
+                text=True,
+                start_new_session=True,
+            )
 
-        while process.poll() is None:
-            if time.monotonic() >= deadline:
-                timed_out = True
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                process.kill()
-                break
-            time.sleep(0.25)
+            deadline = time.monotonic() + VALIDATE_TIMEOUT_SEC
+            while process.poll() is None:
+                if time.monotonic() >= deadline:
+                    timed_out = True
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.kill()
+                    break
+                time.sleep(0.25)
 
-        output_handle.flush()
-        output_handle.seek(0)
-        output = output_handle.read()
+            output_handle.flush()
+            output_handle.seek(0)
+            output = output_handle.read()
+    finally:
+        if sanitized_plan_handle is not None:
+            sanitized_plan_handle.close()
+
+    if validation_plan_path != str(plan_path):
+        output = output.replace(validation_plan_path, str(plan_path))
 
     if timed_out:
         output = f"{output}\nValidator timed out after {VALIDATE_TIMEOUT_SEC} seconds.\n"

@@ -2,6 +2,7 @@ import os
 import shutil
 import json
 import math
+import colorsys
 from pathlib import Path
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
@@ -171,7 +172,16 @@ def _variant_run_dirs(variant_dir: Path) -> list[Path]:
         key=lambda child: int(child.name),
     )
 
-MODERN_COLORS = ["#348ABD", "#E24A33", "#8EBA42"]
+MODERN_COLORS = [
+    "#348ABD",
+    "#E24A33",
+    "#8EBA42",
+    "#988ED5",
+    "#FBC15E",
+    "#8EBAE5",
+    "#FFB5B8",
+    "#777777",
+]
 CONFIDENCE_LEVEL_LABEL = "95%"
 NORMAL_95_Z = 1.959963984540054
 DESIGN_GRAPH_DIR_NAME = "design"
@@ -180,7 +190,16 @@ DESIGN_PANEL = "#FBF7EF"
 DESIGN_INK = "#241C15"
 DESIGN_MUTED = "#73675C"
 DESIGN_GRID = "#D8CEC0"
-DESIGN_COLORS = ["#C65F3D", "#38695B", "#8B6F47"]
+DESIGN_COLORS = [
+    "#C65F3D",
+    "#38695B",
+    "#6A5E9C",
+    "#D39B2A",
+    "#2F6F91",
+    "#8F4F68",
+    "#5F7F3A",
+    "#A7652E",
+]
 DESIGN_VARIANT_LABELS = {
     "canonical": "канонический",
     "disp_1": "с разбросом\n1 уровня",
@@ -238,6 +257,48 @@ CONFIDENCE_INTERVAL_COLUMNS = [
     "ci_method",
     "coverage_ratio",
 ]
+
+
+def _fallback_palette_color(index: int) -> str:
+    hue = (index * 0.618033988749895) % 1.0
+    red, green, blue = colorsys.hls_to_rgb(hue, 0.48, 0.62)
+    return f"#{round(red * 255):02X}{round(green * 255):02X}{round(blue * 255):02X}"
+
+
+def _palette_for_model_count(base_colors: list[str], model_count: int) -> list[str]:
+    if model_count <= 0:
+        return []
+
+    palette: list[str] = []
+    used_colors: set[str] = set()
+    for color in base_colors:
+        normalized_color = color.lower()
+        if normalized_color in used_colors:
+            continue
+        palette.append(color)
+        used_colors.add(normalized_color)
+        if len(palette) == model_count:
+            return palette
+
+    fallback_index = 0
+    while len(palette) < model_count:
+        color = _fallback_palette_color(fallback_index)
+        fallback_index += 1
+        normalized_color = color.lower()
+        if normalized_color in used_colors:
+            continue
+        palette.append(color)
+        used_colors.add(normalized_color)
+
+    return palette
+
+
+def _model_color(base_colors: list[str], model_name: str, model_order: list[str] | None = None) -> str:
+    ordered_models = list(dict.fromkeys([*MODEL_NAMES, *(model_order or [])]))
+    if model_name not in ordered_models:
+        ordered_models.append(model_name)
+    palette = _palette_for_model_count(base_colors, len(ordered_models))
+    return palette[ordered_models.index(model_name)]
 
 
 def _apply_modern_style(ax):
@@ -553,7 +614,7 @@ def _plot_problem_variant_bar(frame: pd.DataFrame, metric: dict, output_path: Pa
         kind="bar", 
         width=0.8,
         figsize=(10, 6),
-        color=MODERN_COLORS,
+        color=_palette_for_model_count(MODERN_COLORS, len(MODEL_NAMES)),
         edgecolor="none" # Убираем черную обводку самих столбцов
     )
     
@@ -640,7 +701,7 @@ def _plot_confidence_intervals(frame: pd.DataFrame, metric: dict, output_path: P
             ax.axhspan(position - 0.5, position + 0.5, color="#F7F8FA", zorder=0)
 
     for model_index, model_name in enumerate(models):
-        color = MODERN_COLORS[model_index % len(MODERN_COLORS)]
+        color = _model_color(MODERN_COLORS, model_name, models)
         offset = (model_index - (len(models) - 1) / 2) * model_offset_step
         model_summary = summary[summary["model"] == model_name]
         x_values: list[float] = []
@@ -836,7 +897,7 @@ def _plot_design_order_bar(
     max_height = 0.0
 
     for model_index, model_name in enumerate(MODEL_NAMES):
-        color = DESIGN_COLORS[model_index % len(DESIGN_COLORS)]
+        color = _model_color(DESIGN_COLORS, model_name)
         offset = (model_index - (len(MODEL_NAMES) - 1) / 2) * width
         values = [
             float(value) if pd.notna(value) else math.nan
@@ -946,7 +1007,7 @@ def _plot_design_confidence_intervals(
             ax.axhspan(position - 0.5, position + 0.5, color="#F0E8DC", zorder=0)
 
     for model_index, model_name in enumerate(models):
-        color = DESIGN_COLORS[model_index % len(DESIGN_COLORS)]
+        color = _model_color(DESIGN_COLORS, model_name, models)
         offset = (model_index - (len(models) - 1) / 2) * model_offset_step
         model_summary = summary[summary["model"] == model_name]
         x_values: list[float] = []
@@ -1048,7 +1109,7 @@ def _plot_design_token_breakdown(
     model_handles = []
 
     for model_index, model_name in enumerate(MODEL_NAMES):
-        color = DESIGN_COLORS[model_index % len(DESIGN_COLORS)]
+        color = _model_color(DESIGN_COLORS, model_name)
         offset = (model_index - (len(MODEL_NAMES) - 1) / 2) * width
         x_positions = [position + offset for position in variant_positions]
         model_summary = (
@@ -1154,7 +1215,7 @@ def _plot_problem_type_bar(frame: pd.DataFrame, metric: dict, output_path: Path,
     width = 0.78 / max(len(MODEL_NAMES), 1)
     max_height = 0.0
     for model_index, model_name in enumerate(MODEL_NAMES):
-        color = MODERN_COLORS[model_index % len(MODERN_COLORS)]
+        color = _model_color(MODERN_COLORS, model_name)
         offset = (model_index - (len(MODEL_NAMES) - 1) / 2) * width
         values = [
             summary_lookup.get((problem_type, variant_name, model_name), float("nan"))
@@ -1227,7 +1288,7 @@ def _plot_single_problem_type_bar(
         kind="bar",
         width=0.8,
         figsize=(10, 5.5),
-        color=MODERN_COLORS,
+        color=_palette_for_model_count(MODERN_COLORS, len(MODEL_NAMES)),
         edgecolor="none",
     )
 
@@ -1288,7 +1349,7 @@ def _plot_problem_token_breakdown(frame: pd.DataFrame, output_path: Path, title:
 
     model_handles = []
     for model_index, model_name in enumerate(MODEL_NAMES):
-        color = MODERN_COLORS[model_index % len(MODERN_COLORS)]
+        color = _model_color(MODERN_COLORS, model_name)
         offset = (model_index - (len(MODEL_NAMES) - 1) / 2) * width
         x_positions = [position + offset for position in variant_positions]
         model_summary = (

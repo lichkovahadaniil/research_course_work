@@ -1,9 +1,15 @@
 import json
 
 from experiment_config import MODEL_NAMES, ProblemRef
+import plot_metrics
 from plot_metrics import (
+    DESIGN_COLORS,
+    MODERN_COLORS,
     build_records,
     build_reports,
+    _model_color,
+    _palette_for_model_count,
+    _plot_problem_variant_bar,
     summarize_confidence_intervals,
     summarize_problem_type_records,
     summarize_records,
@@ -28,6 +34,58 @@ def write_result(root, domain, task, problem, variant, run_id, model, metrics, r
         json.dumps(payload),
         encoding="utf-8",
     )
+
+
+def test_palette_assigns_unique_color_to_each_configured_model() -> None:
+    for base_colors in [MODERN_COLORS, DESIGN_COLORS]:
+        palette = _palette_for_model_count(base_colors, len(MODEL_NAMES))
+
+        assert len(palette) == len(MODEL_NAMES)
+        assert len({color.lower() for color in palette}) == len(MODEL_NAMES)
+        assert [_model_color(base_colors, model) for model in MODEL_NAMES] == palette
+
+
+def test_palette_expands_without_reusing_colors() -> None:
+    palette = _palette_for_model_count(["#111111", "#222222", "#333333"], 4)
+
+    assert len(palette) == 4
+    assert len({color.lower() for color in palette}) == 4
+
+
+def test_problem_variant_bar_uses_unique_color_per_model(tmp_path, monkeypatch) -> None:
+    import pandas as pd
+    from matplotlib.colors import to_hex
+
+    captured_colors: list[str] = []
+
+    def capture_savefig(*args, **kwargs) -> None:
+        ax = plot_metrics.plt.gcf().axes[0]
+        captured_colors.extend(
+            to_hex(container.patches[0].get_facecolor())
+            for container in ax.containers[: len(MODEL_NAMES)]
+        )
+
+    monkeypatch.setattr(plot_metrics.plt, "savefig", capture_savefig)
+    frame = pd.DataFrame(
+        [
+            {
+                "variant": "canonical",
+                "model": model_name,
+                "plan_length": model_index + 1,
+            }
+            for model_index, model_name in enumerate(MODEL_NAMES)
+        ]
+    )
+
+    _plot_problem_variant_bar(
+        frame,
+        {"slug": "plan_length", "title": "Plan Length", "rate": False},
+        tmp_path / "plot.png",
+        "Plan Length",
+    )
+
+    assert len(captured_colors) == len(MODEL_NAMES)
+    assert len(set(captured_colors)) == len(MODEL_NAMES)
 
 
 def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:

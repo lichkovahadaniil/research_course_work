@@ -1,0 +1,106 @@
+We need to produce a plan that achieves the goal: dispatched origin_availability_alpha, dispatched destination_availability_alpha, dispatched shift_candidate_alpha, dispatched shift_candidate_beta.
+
+We need to consider the initial state and the actions available.
+
+We have the following initial predicates:
+
+(vehicle_available vehicle_unit_alpha)
+(vehicle_available vehicle_unit_beta)
+(vehicle_available vehicle_unit_gamma)
+(route_task_profile_available route_task_profile_alpha)
+(operator_available driver_operator_alpha)
+(cargo_available cargo_payload_alpha)
+(origin_availability_node_linked origin_availability_alpha origin_node_alpha)
+(destination_availability_node_linked destination_availability_alpha destination_node_alpha)
+(transport_leg_available transport_leg_alpha)
+(loading_container_available loading_container_alpha)
+(loading_container_available loading_container_beta)
+(candidate_origin_availability_linked shift_candidate_alpha origin_availability_alpha)
+(candidate_origin_availability_linked shift_candidate_beta origin_availability_alpha)
+(candidate_destination_availability_linked shift_candidate_alpha destination_availability_alpha)
+(candidate_destination_availability_linked shift_candidate_beta destination_availability_alpha)
+(candidate_transport_leg_linked shift_candidate_alpha transport_leg_alpha)
+(candidate_transport_leg_linked shift_candidate_beta transport_leg_alpha)
+(candidate_loading_container_linked shift_candidate_alpha loading_container_alpha)
+(candidate_loading_container_linked shift_candidate_beta loading_container_beta)
+(equipment_available equipment_resource_alpha)
+(equipment_available equipment_resource_beta)
+(service_window_available service_window_alpha)
+(service_window_available service_window_beta)
+(dispatch_slot_available dispatch_slot_alpha)
+(skill_certificate_available skill_certificate_alpha)
+(operational_constraint_available operational_constraint_alpha)
+(candidate_operational_constraint_linked shift_candidate_alpha operational_constraint_alpha)
+(candidate_operational_constraint_linked shift_candidate_beta operational_constraint_beta)
+(compliance_certificate_available compliance_certificate_alpha)
+
+Goal: (and (dispatched origin_availability_alpha) (dispatched destination_availability_alpha) (dispatched shift_candidate_alpha) (dispatched shift_candidate_beta))
+
+We need to produce a plan that results in these four dispatched predicates.
+
+We need to consider the actions needed.
+
+First, to dispatch origin_availability_alpha, we need to have dispatch_allocated origin_availability_alpha, candidate_vehicle_linked origin_availability_alpha ?vehicle, candidate_dispatch_slot_linked origin_availability_alpha ?slot, and not dispatched. So we need to allocate a vehicle and a dispatch slot to origin_availability_alpha, and then execute_origin_dispatch.
+
+Similarly for destination_availability_alpha.
+
+For shift_candidate_alpha and shift_candidate_beta, we need to dispatch them via execute_schedule_dispatch, which requires dispatch_allocated shift_candidate_alpha, candidate_vehicle_linked shift_candidate_alpha ?vehicle, candidate_dispatch_slot_linked shift_candidate_alpha ?slot, not dispatched.
+
+Thus we need to allocate vehicles and dispatch slots to all four.
+
+We also need to have dispatch_ready for each before allocating dispatch slot.
+
+Thus we need to perform steps to make each dispatch_ready.
+
+Let's outline a plan:
+
+For origin_availability_alpha:
+
+1. create_candidate origin_availability_alpha (since we need candidate_created for allocate_vehicle_unit and attach_task_profile)
+2. allocate_vehicle_unit origin_availability_alpha vehicle_unit_alpha
+3. attach_task_profile origin_availability_alpha route_task_profile_alpha
+4. assign_operator_resource origin_availability_alpha driver_operator_alpha
+5. confirm_candidate_preparedness origin_availability_alpha route_task_profile_alpha
+6. activate_origin_node origin_availability_alpha origin_node_alpha route_task_profile_alpha
+7. lock_origin_availability origin_availability_alpha origin_node_alpha driver_operator_alpha
+8. release_operator_resource origin_availability_alpha driver_operator_alpha (optional, to free operator for later)
+9. mark_origin_availability_dispatch_ready origin_availability_alpha transport_leg_alpha (but we need transport_leg_assembled and loading_authorized first)
+   To get transport_leg_assembled, we need to assemble transport_leg_alpha using assemble_transport_leg (requires origin_availability_locked, destination_availability_locked, nodes ready, etc.)
+   So we need to also lock destination_availability_alpha and activate destination_node_alpha.
+
+Thus we need to also process destination_availability_alpha similarly.
+
+But we can interleave steps.
+
+Let's process origin_availability_alpha steps up to lock_origin_availability.
+
+Then process destination_availability_alpha similarly:
+
+10. assign_operator_resource destination_availability_alpha driver_operator_alpha (but operator is currently not available because we released after origin lock; we need to assign again)
+11. create_candidate destination_availability_alpha
+12. allocate_vehicle_unit destination_availability_alpha vehicle_unit_beta
+13. attach_task_profile destination_availability_alpha route_task_profile_alpha
+14. confirm_candidate_preparedness destination_availability_alpha route_task_profile_alpha
+15. activate_destination_node destination_availability_alpha destination_node_alpha route_task_profile_alpha
+16. lock_destination_availability destination_availability_alpha destination_node_alpha driver_operator_alpha
+17. release_operator_resource destination_availability_alpha driver_operator_alpha
+
+Now both origin and destination availabilities are locked and confirmed, nodes ready.
+
+Now we can assemble transport_leg_alpha:
+
+18. assemble_transport_leg origin_availability_alpha destination_availability_alpha origin_node_alpha destination_node_alpha transport_leg_alpha
+
+Now transport_leg_assembled true.
+
+19. authorize_transport_leg_loading transport_leg_alpha origin_availability_alpha route_task_profile_alpha
+
+Now transport_leg_loading_authorized true.
+
+Now we can mark origin availability dispatch ready:
+
+20. mark_origin_availability_dispatch_ready origin_availability_alpha transport_leg_alpha
+
+Now dispatch_ready origin_availability_alpha true.
+
+21. allocate_dispatch
