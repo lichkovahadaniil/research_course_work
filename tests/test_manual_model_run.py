@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from manual_model_run import model_output_dir_name, refresh_aggregate_for_model
+from manual_model_run import model_output_dir_name, refresh_aggregate_for_model, safe_build_metrics
 
 TEST_MODEL = "mistralai/mistral-small-2603"
 
@@ -20,6 +20,53 @@ def write_result(order_dir: Path, run_id: int, model: str, metrics: dict, respon
         json.dumps(payload),
         encoding="utf-8",
     )
+
+
+def test_safe_build_metrics_reformats_executable_empty_plan_and_reruns(tmp_path: Path, monkeypatch) -> None:
+    domain_path = tmp_path / "domain.pddl"
+    problem_path = tmp_path / "problem.pddl"
+    plan_path = tmp_path / "llm.plan"
+    optimal_plan_path = tmp_path / "optimal.plan"
+    domain_path.write_text("(define (domain d) (:action create_candidate))\n", encoding="utf-8")
+    problem_path.write_text("(define (problem p))\n", encoding="utf-8")
+    plan_path.write_text("create_candidate(shift_candidate_alpha)\n", encoding="utf-8")
+    optimal_plan_path.write_text("(create_candidate shift_candidate_alpha)\n", encoding="utf-8")
+    seen_plan_texts: list[str] = []
+
+    def fake_build_metrics(*args, **kwargs):
+        seen_plan_texts.append(plan_path.read_text(encoding="utf-8"))
+        if len(seen_plan_texts) == 1:
+            return {
+                "strict": {
+                    "plan_length": 0,
+                    "executability": True,
+                    "reachability": False,
+                },
+                "legacy": {},
+                "reference": {},
+            }
+        return {
+            "strict": {
+                "plan_length": 1,
+                "executability": True,
+                "reachability": True,
+            },
+            "legacy": {},
+            "reference": {},
+        }
+
+    monkeypatch.setattr("manual_model_run.build_metrics", fake_build_metrics)
+
+    metrics, error = safe_build_metrics(domain_path, problem_path, plan_path, optimal_plan_path)
+
+    assert error is None
+    assert metrics is not None
+    assert metrics["strict"]["plan_length"] == 1
+    assert plan_path.read_text(encoding="utf-8") == "(create_candidate shift_candidate_alpha)\n"
+    assert seen_plan_texts == [
+        "create_candidate(shift_candidate_alpha)\n",
+        "(create_candidate shift_candidate_alpha)\n",
+    ]
 
 
 def test_refresh_aggregate_for_model_writes_mean_and_std(tmp_path: Path) -> None:

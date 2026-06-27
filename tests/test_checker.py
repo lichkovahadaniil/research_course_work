@@ -1,6 +1,13 @@
 from pathlib import Path
 
-from checker import _run_validator, _sanitize_plan_text_for_validation, build_metrics, legacy_validation, strict_validation
+from checker import (
+    _run_validator,
+    _sanitize_plan_text_for_validation,
+    build_metrics,
+    legacy_validation,
+    strict_validation,
+    wrap_plan_text_lines,
+)
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -27,6 +34,36 @@ def test_sanitize_plan_text_for_validation_removes_non_action_wrapper() -> None:
 def test_sanitize_plan_text_for_validation_leaves_clean_or_actionless_text_alone() -> None:
     assert _sanitize_plan_text_for_validation("(create_candidate shift_candidate_alpha)\n") is None
     assert _sanitize_plan_text_for_validation("I could not find a plan.\n") is None
+
+
+def test_wrap_plan_text_lines_wraps_each_non_empty_line() -> None:
+    plan_text = """
+Here is the plan:
+create_candidate shift_candidate_alpha
+(allocate_vehicle_unit origin_availability_alpha vehicle_unit_alpha)
+"""
+
+    assert wrap_plan_text_lines(plan_text) == (
+        "(Here is the plan:)\n"
+        "(create_candidate shift_candidate_alpha)\n"
+        "(allocate_vehicle_unit origin_availability_alpha vehicle_unit_alpha)\n"
+    )
+
+
+def test_wrap_plan_text_lines_converts_call_style_actions() -> None:
+    plan_text = """
+execute_schedule_dispatch(shift_candidate_alpha vehicle_unit_gamma dispatch_slot_alpha)
+release_compliance_certificate(shift_candidate_alpha compliance_certificate_alpha)
+"""
+
+    assert wrap_plan_text_lines(plan_text) == (
+        "(execute_schedule_dispatch shift_candidate_alpha vehicle_unit_gamma dispatch_slot_alpha)\n"
+        "(release_compliance_certificate shift_candidate_alpha compliance_certificate_alpha)\n"
+    )
+
+
+def test_wrap_plan_text_lines_ignores_empty_text() -> None:
+    assert wrap_plan_text_lines("\n\n") is None
 
 
 def test_run_validator_uses_sanitized_plan_copy(tmp_path: Path, monkeypatch) -> None:

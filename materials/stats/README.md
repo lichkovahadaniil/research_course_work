@@ -13,3 +13,4 @@ Files:
 - `deepseek-v4-flash_stats.json` / `deepseek-v4-flash_stats.md` / `deepseek-v4-flash_tests.csv`
 - `gpt-oss-120b_stats.json` / `gpt-oss-120b_stats.md` / `gpt-oss-120b_tests.csv`
 - `nemotron-3-super_stats.json` / `nemotron-3-super_stats.md` / `nemotron-3-super_tests.csv`
+- `qwen3-235b-a22b-thinking-2507_stats.json` / `qwen3-235b-a22b-thinking-2507_stats.md` / `qwen3-235b-a22b-thinking-2507_tests.csv`

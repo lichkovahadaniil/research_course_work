@@ -17,22 +17,22 @@ MODEL_ALIASES = {
     "deepseek/deepseek-v4-flash": "deepseek/deepseek-v4-flash",
     "gpt-oss-120b": "openai/gpt-oss-120b",
     "nemotron-3-super": "nvidia/nemotron-3-super-120b-a12b",
-    "tencent/hy3-preview": "tencent/hy3-preview",
+    "qwen/qwen3-235b-a22b-thinking-2507": "qwen/qwen3-235b-a22b-thinking-2507",
 }
 MODEL_CONFIG = {
     "cohere/north-mini-code:free": {
         "max_tokens": None,
         "supports_reasoning": True,
         "reasoning_effort": "medium",
-        "temperature": 0.3,
-        "top_p": 0.9,
+        "temperature": 1.0,
+        "top_p": 0.95,
     },
     "deepseek/deepseek-v4-flash": {
         "max_tokens": None,
         "supports_reasoning": True,
         "reasoning_effort": "medium",
-        "temperature": 0.3,
-        "top_p": 0.9,
+        "temperature": 1.0,
+        "top_p": 1.0,
         "provider": {
             "order": ["atlas-cloud"],
             "allow_fallbacks": False,
@@ -43,8 +43,8 @@ MODEL_CONFIG = {
         "max_tokens": None,
         "supports_reasoning": True,
         "reasoning_effort": "medium",
-        "temperature": 0.3,
-        "top_p": 0.9,
+        "temperature": 1.0,
+        "top_p": 1.0,
         "provider": {
             "order": ["DeepInfra"],
             "allow_fallbacks": False,
@@ -55,22 +55,24 @@ MODEL_CONFIG = {
         "max_tokens": None,
         "supports_reasoning": True,
         "reasoning_effort": "medium",
-        "temperature": 0.3,
-        "top_p": 0.9,
+        "temperature": 1.0,
+        "top_p": 0.95,
         "provider": {
             "order": ["dekallm"],
             "allow_fallbacks": False,
             "quantizations": ["fp8"],
         },
     },
-    "tencent/hy3-preview": {
+    "qwen/qwen3-235b-a22b-thinking-2507": {
         "max_tokens": None,
         "supports_reasoning": True,
-        "reasoning_effort": "high",
-        "temperature": 0.3,
-        "top_p": 0.9,
+        "reasoning_effort": "medium",
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "top_k": 20,
+        "min_p": 0,
         "provider": {
-            "order": ["gmicloud"],
+            "order": ["wandb"],
             "allow_fallbacks": False,
             "quantizations": ["bf16"],
         },
@@ -172,17 +174,19 @@ Each line must contain exactly one action in PDDL format. Also use brackets "()"
         "messages": [{"role": "user", "content": prompt}],
         "extra_body": extra_body,
         "temperature": config.get("temperature", 0.0),
-        "max_tokens": config.get("max_tokens"),
         "top_p": config.get("top_p", 1.0),
     }
+    max_tokens = config.get("max_tokens")
+    if max_tokens is not None:
+        create_kwargs["max_tokens"] = max_tokens
     for key in ("presence_penalty", "frequency_penalty"):
         if key in config:
             create_kwargs[key] = config[key]
 
-    for key in ("top_k", "repetition_penalty", "provider"):
+    for key in ("top_k", "min_p", "repetition_penalty", "provider"):
         if key in config:
             extra_body[key] = config[key]
-            
+
     started_at = time.time()
     response = client.chat.completions.create(**create_kwargs)
     duration = round(time.time() - started_at, 2)

@@ -9,7 +9,7 @@ MODEL_NAMES = [
     "deepseek/deepseek-v4-flash",
     "gpt-oss-120b",
     "nemotron-3-super",
-    "tencent/hy3-preview",
+    "qwen/qwen3-235b-a22b-thinking-2507",
 ]
 
 

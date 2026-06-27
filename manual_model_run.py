@@ -12,7 +12,7 @@ try:
 except ImportError:
     fcntl = None
 
-from checker import build_metrics
+from checker import build_metrics, wrap_plan_text_lines
 from token_usage import build_token_usage_from_payload
 
 
@@ -200,7 +200,15 @@ def safe_build_metrics(
     optimal_plan_path: Path,
 ) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
     try:
-        return build_metrics(domain_path, problem_path, plan_path, optimal_plan_path), None
+        metrics = build_metrics(domain_path, problem_path, plan_path, optimal_plan_path)
+        strict = metrics.get("strict") or {}
+        plan_text = plan_path.read_text(encoding="utf-8")
+        if strict.get("executability") and strict.get("plan_length") == 0 and plan_text.strip():
+            normalized_plan = wrap_plan_text_lines(plan_text)
+            if normalized_plan is not None:
+                atomic_write_text(plan_path, normalized_plan)
+                metrics = build_metrics(domain_path, problem_path, plan_path, optimal_plan_path)
+        return metrics, None
     except Exception as exc:
         return None, {
             "type": type(exc).__name__,

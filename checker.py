@@ -23,6 +23,7 @@ FIRST_FAILURE_PATTERNS = (
 )
 ACTION_LINE_PATTERN = re.compile(r"^\s*\(([^;].*)\)\s*$")
 VALIDATION_ACTION_LINE_PATTERN = re.compile(r"^\s*\([^();\s]+(?:\s+[^();\s]+)*\)\s*$")
+CALL_STYLE_ACTION_PATTERN = re.compile(r"^([^()\s]+)\((.*)\)$")
 
 
 def _read_text(path: str | Path) -> str:
@@ -44,6 +45,26 @@ def _read_plan_actions(plan_path: str | Path) -> list[str]:
         if ACTION_LINE_PATTERN.match(line):
             actions.append(" ".join(line.lower().split()))
     return actions
+
+
+def wrap_plan_text_lines(plan_text: str) -> str | None:
+    action_lines: list[str] = []
+
+    for raw_line in plan_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        call_style_match = CALL_STYLE_ACTION_PATTERN.match(line)
+        if call_style_match:
+            line = f"{call_style_match.group(1)} {call_style_match.group(2).strip()}"
+        if line.startswith("(") and line.endswith(")"):
+            action_lines.append(line)
+        else:
+            action_lines.append(f"({line})")
+
+    if not action_lines:
+        return None
+    return "\n".join(action_lines) + "\n"
 
 
 def _sanitize_plan_text_for_validation(plan_text: str) -> str | None:
