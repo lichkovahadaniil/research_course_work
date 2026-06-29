@@ -126,6 +126,13 @@ def test_shuffle_creates_plan_action_variants(tmp_path: Path) -> None:
         "gamma",
         "epsilon",
     ]
+    assert extract_action_order(save_dir / "plan_back" / "domain.pddl") == [
+        "alpha",
+        "gamma",
+        "epsilon",
+        "delta",
+        "beta",
+    ]
     assert extract_action_order(save_dir / "plan_scatter" / "domain.pddl") == [
         "alpha",
         "delta",
@@ -160,6 +167,7 @@ def test_shuffle_meta_contains_variant_orders(tmp_path: Path) -> None:
             "disp_2": ["epsilon", "delta", "alpha", "beta", "gamma"],
             "disp_3": ["epsilon", "delta", "gamma", "beta", "alpha"],
             "plan_front": ["beta", "alpha", "gamma", "delta", "epsilon"],
+            "plan_back": ["epsilon", "delta", "gamma", "alpha", "beta"],
             "plan_scatter": ["epsilon", "delta", "gamma", "alpha", "beta"],
         },
     }

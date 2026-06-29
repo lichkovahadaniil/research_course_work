@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -107,6 +108,27 @@ def test_run_models_executes_every_command(tmp_path: Path, monkeypatch) -> None:
     run_models([problem_ref], [TEST_MODEL], ["canonical", "disp_3"], runs=2)
 
     assert len(executed) == 4
+
+
+def test_run_models_prints_status_path_when_subprocess_fails(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    problem_ref = ProblemRef("alpha", "p3")
+    create_prepared_problem(tmp_path, "logistics", problem_ref)
+
+    def fake_run(command: list[str], check: bool) -> None:
+        assert check is True
+        raise subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        run_models([problem_ref], [TEST_MODEL], ["canonical"], runs=1)
+
+    assert "run_status.json" in capsys.readouterr().err
 
 
 def test_normalize_problem_refs_defaults_to_all_problems() -> None:

@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import statistics
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,42 @@ def update_status(status_path: Path, stage: str, **extra: Any) -> None:
             **extra,
         },
     )
+
+
+def _json_safe(value: Any) -> Any:
+    try:
+        json.dumps(value)
+    except TypeError:
+        return repr(value)
+    return value
+
+
+def serialize_exception(exc: BaseException) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "type": type(exc).__name__,
+        "message": str(exc),
+        "traceback": "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+    }
+
+    for attr_name in ("status_code", "code", "param", "request_id"):
+        attr_value = getattr(exc, attr_name, None)
+        if attr_value is not None:
+            payload[attr_name] = _json_safe(attr_value)
+
+    body = getattr(exc, "body", None)
+    if body is not None:
+        payload["body"] = _json_safe(body)
+
+    response = getattr(exc, "response", None)
+    if response is not None:
+        response_status_code = getattr(response, "status_code", None)
+        if response_status_code is not None:
+            payload["response_status_code"] = _json_safe(response_status_code)
+        response_text = getattr(response, "text", None)
+        if response_text:
+            payload["response_text"] = str(response_text)[:4000]
+
+    return payload
 
 
 def append_spending(response: dict[str, Any], model: str, domain_path: Path, problem_path: Path) -> None:
@@ -238,12 +275,31 @@ def run_model(
     from api_call import call_openrouter
 
     update_status(status_path, "calling_model", model=model)
-    response = call_openrouter(
-        domain_path=domain_path,
-        problem_path=problem_path,
-        model=model,
-        reasoning_enabled=True,
-    )
+    try:
+        response = call_openrouter(
+            domain_path=domain_path,
+            problem_path=problem_path,
+            model=model,
+            reasoning_enabled=True,
+        )
+    except KeyboardInterrupt as exc:
+        update_status(
+            status_path,
+            "interrupted",
+            model=model,
+            failed_stage="calling_model",
+            error=serialize_exception(exc),
+        )
+        raise
+    except Exception as exc:
+        update_status(
+            status_path,
+            "failed",
+            model=model,
+            failed_stage="calling_model",
+            error=serialize_exception(exc),
+        )
+        raise
 
     atomic_write_text(plan_path, str(response["plan"]))
     update_status(status_path, "plan_written", plan_file=str(plan_path))

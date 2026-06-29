@@ -9,6 +9,7 @@ VARIANT_NAMES = [
     "disp_2",
     "disp_3",
     "plan_front",
+    "plan_back",
     "plan_scatter",
 ]
 DISPERSION_LEVELS = {
@@ -168,6 +169,16 @@ def _build_plan_front_order(action_order: list[str], plan_action_order: list[str
     ]
 
 
+def _build_plan_back_order(action_order: list[str], plan_action_order: list[str]) -> list[str]:
+    plan_actions = set(plan_action_order)
+    background_order = [
+        action_name
+        for action_name in action_order
+        if action_name not in plan_actions
+    ]
+    return background_order + list(reversed(plan_action_order))
+
+
 def _build_plan_scatter_order(action_order: list[str], plan_action_order: list[str]) -> list[str]:
     if not plan_action_order:
         return action_order[:]
@@ -204,6 +215,7 @@ def _build_variants(action_order: list[str], plan_action_order: list[str]) -> di
         variants[variant_name] = _build_dispersion_order(action_order, numerator, denominator)
     variants["disp_3"] = list(reversed(action_order))
     variants["plan_front"] = _build_plan_front_order(action_order, plan_action_order)
+    variants["plan_back"] = _build_plan_back_order(action_order, plan_action_order)
     variants["plan_scatter"] = _build_plan_scatter_order(action_order, plan_action_order)
     return variants
 

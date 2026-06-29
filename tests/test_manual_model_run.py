@@ -1,7 +1,11 @@
 import json
+import sys
+import types
 from pathlib import Path
 
-from manual_model_run import model_output_dir_name, refresh_aggregate_for_model, safe_build_metrics
+import pytest
+
+from manual_model_run import model_output_dir_name, refresh_aggregate_for_model, run_model, safe_build_metrics
 
 TEST_MODEL = "mistralai/mistral-small-2603"
 
@@ -67,6 +71,54 @@ def test_safe_build_metrics_reformats_executable_empty_plan_and_reruns(tmp_path:
         "create_candidate(shift_candidate_alpha)\n",
         "(create_candidate shift_candidate_alpha)\n",
     ]
+
+
+def test_run_model_records_model_call_error(tmp_path: Path, monkeypatch) -> None:
+    domain_path = tmp_path / "domain.pddl"
+    problem_path = tmp_path / "problem.pddl"
+    optimal_plan_path = tmp_path / "optimal.plan"
+    output_dir = tmp_path / "out"
+    domain_path.write_text("(define (domain d))\n", encoding="utf-8")
+    problem_path.write_text("(define (problem p))\n", encoding="utf-8")
+    optimal_plan_path.write_text("(a)\n", encoding="utf-8")
+
+    class FakeOpenRouterError(Exception):
+        status_code = 400
+        code = "bad_request"
+        body = {"error": {"message": "reasoning is not supported"}}
+        request_id = "req_test"
+
+    def fake_call_openrouter(*args, **kwargs):
+        raise FakeOpenRouterError("provider rejected request")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "api_call",
+        types.SimpleNamespace(call_openrouter=fake_call_openrouter),
+    )
+
+    with pytest.raises(FakeOpenRouterError):
+        run_model(
+            domain_path=domain_path,
+            problem_path=problem_path,
+            optimal_plan_path=optimal_plan_path,
+            output_dir=output_dir,
+            model=TEST_MODEL,
+            force=False,
+        )
+
+    status = json.loads((output_dir / "run_status.json").read_text(encoding="utf-8"))
+    assert status["stage"] == "failed"
+    assert status["failed_stage"] == "calling_model"
+    assert status["model"] == TEST_MODEL
+    assert status["error"]["type"] == "FakeOpenRouterError"
+    assert status["error"]["message"] == "provider rejected request"
+    assert status["error"]["status_code"] == 400
+    assert status["error"]["code"] == "bad_request"
+    assert status["error"]["body"] == {"error": {"message": "reasoning is not supported"}}
+    assert status["error"]["request_id"] == "req_test"
+    assert "fake_call_openrouter" in status["error"]["traceback"]
+    assert not (output_dir / "llm.plan").exists()
 
 
 def test_refresh_aggregate_for_model_writes_mean_and_std(tmp_path: Path) -> None:

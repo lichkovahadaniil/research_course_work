@@ -206,6 +206,7 @@ DESIGN_VARIANT_LABELS = {
     "disp_2": "с разбросом\n2 уровня",
     "disp_3": "с разбросом\n3 уровня",
     "plan_front": "последовательный",
+    "plan_back": "обратный\nплан",
     "plan_scatter": "рассеянный",
 }
 DESIGN_MODEL_LABELS = {

@@ -4,7 +4,7 @@ import math
 import random
 import statistics
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -20,8 +20,12 @@ from token_usage import build_token_usage_from_payload
 
 BASELINE_ORDER = "canonical"
 COMPARED_ORDERS = [order for order in VARIANT_NAMES if order != BASELINE_ORDER]
+SECONDARY_BASELINE_ORDER = "plan_front"
+SECONDARY_COMPARED_ORDERS = [
+    order for order in VARIANT_NAMES if order != SECONDARY_BASELINE_ORDER
+]
 EXTRA_ORDER_COMPARISONS = [
-    ("plan_front", "plan_scatter"),
+    (SECONDARY_BASELINE_ORDER, order) for order in SECONDARY_COMPARED_ORDERS
 ]
 DATA_ROOT = PROJECT_ROOT / "materials" / "logistics" / "alpha"
 OUTPUT_DIR = Path(__file__).resolve().parent
@@ -182,14 +186,20 @@ def sign_flip_permutation_p(
     observed = abs(sum(nonzero) / len(differences))
     nonzero_count = len(nonzero)
     if nonzero_count <= 20:
-        extreme = 0
+        sum_counts = Counter({0.0: 1})
+        for value in nonzero:
+            next_counts: Counter[float] = Counter()
+            for signed_sum, count in sum_counts.items():
+                next_counts[signed_sum + value] += count
+                next_counts[signed_sum - value] += count
+            sum_counts = next_counts
+
         total = 1 << nonzero_count
-        for mask in range(total):
-            signed_sum = 0.0
-            for index, value in enumerate(nonzero):
-                signed_sum += value if (mask >> index) & 1 else -value
-            if abs(signed_sum / len(differences)) >= observed - 1e-12:
-                extreme += 1
+        extreme = sum(
+            count
+            for signed_sum, count in sum_counts.items()
+            if abs(signed_sum / len(differences)) >= observed - 1e-12
+        )
         return extreme / total
 
     rng = random.Random(seed)
@@ -650,11 +660,11 @@ def markdown_report(model_name: str, payload: dict[str, Any]) -> str:
     lines = [
         f"# Statistical Tests: {model_name}",
         "",
-        "Baseline order: `canonical`.",
+        "Primary baseline order: `canonical`.",
         "Canonical compared orders: "
         + ", ".join(f"`{order_name}`" for order_name in payload["compared_orders"])
         + ".",
-        f"Extra comparisons: {extra_comparison_text}.",
+        f"`plan_front` baseline comparisons: {extra_comparison_text}.",
         "",
         "Pairing unit for McNemar and numeric tests: `(problem, run)` within this model. Conditional reachability is summarized per order among executable plans only.",
         "",
@@ -947,7 +957,7 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
             "conditional_binary": "Conditional reachability uses per-order executable-plan denominators and Fisher's exact test on those counts.",
             "numeric": "Paired t-test and paired sign-flip permutation test.",
             "problem_level": "Runs are averaged per problem before a paired sign-flip permutation test; bootstrap CI resamples problems.",
-            "multiple_comparisons": "Holm adjustment across canonical-vs-order comparisons and extra comparisons within each model/metric/test family.",
+            "multiple_comparisons": "Holm adjustment is applied separately within each baseline comparison group for each model/metric/test family.",
         },
         "metric_definitions": {
             **BINARY_METRICS,
@@ -973,8 +983,8 @@ def main() -> None:
         "",
         "This folder contains reproducible order-effect tests for the saved local `llm_result.json` files. No model/API calls are made.",
         "",
-        "McNemar and numeric tests are paired within each model by `(problem, run)`: each compared order is matched with `canonical` for the same problem and run.",
-        "The report also includes the direct `plan_front` vs `plan_scatter` comparison when both orders are present.",
+        "McNemar and numeric tests are paired within each model by `(problem, run)`: primary tests match each compared order with `canonical`, and the second pass matches each other order with `plan_front`.",
+        "The `plan_front` baseline comparisons are included when both orders in the pair are present.",
         "Problem-level tests average runs inside each problem before testing the paired problem differences.",
         "",
         "Binary metrics use exact McNemar tests. Conditional reachability uses executable-plan denominators per order and Fisher's exact test. Numeric metrics use paired t-tests and sign-flip permutation tests.",

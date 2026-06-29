@@ -30,6 +30,10 @@ from shuffler import VARIANT_NAMES
 DEFAULT_DOMAIN = DOMAIN_TYPES[0]
 
 
+class ModelRunFailure(RuntimeError):
+    pass
+
+
 def normalize_problem_id(problem_id: str) -> str:
     token = problem_id.strip()
     if not token:
@@ -150,6 +154,20 @@ def build_run_commands(
     return commands
 
 
+def _status_path_for_command(command: list[str]) -> Path | None:
+    try:
+        output_dir_index = command.index("--output-dir") + 1
+        return Path(command[output_dir_index]) / "run_status.json"
+    except (ValueError, IndexError):
+        return None
+
+
+def _format_failed_command(index: int, total: int, command: list[str], error: BaseException) -> str:
+    status_path = _status_path_for_command(command)
+    status_hint = f" (status: {status_path})" if status_path is not None else ""
+    return f"[{index}/{total}] ✗ {' '.join(command[1:])} → {error}{status_hint}"
+
+
 def run_models(
     problem_refs: list[ProblemRef],
     models: list[str],
@@ -167,9 +185,14 @@ def run_models(
 
     if jobs == 1:
         for index, command in enumerate(commands, start=1):
-            subprocess.run(command, check=True)
+            try:
+                subprocess.run(command, check=True)
+            except subprocess.CalledProcessError as exc:
+                print(_format_failed_command(index, total, command, exc), file=sys.stderr)
+                raise
             print(f"[{index}/{total}] {' '.join(command[1:])}")
     else:
+        failures: list[tuple[list[str], BaseException]] = []
         with concurrent.futures.ProcessPoolExecutor(max_workers=jobs) as executor:
             future_to_cmd = {
                 executor.submit(subprocess.run, cmd, check=True): cmd
@@ -180,7 +203,12 @@ def run_models(
                 try:
                     future.result()
                 except Exception as e:
-                    print(f"[{index}/{total}] ✗ {' '.join(cmd[1:])} → {e}")
+                    failures.append((cmd, e))
+                    print(_format_failed_command(index, total, cmd, e), file=sys.stderr)
+        if failures:
+            raise ModelRunFailure(
+                f"{len(failures)} of {total} model jobs failed; inspect each run_status.json for details."
+            )
 
 
 def prepare_with_force(force: bool) -> None:
@@ -252,15 +280,20 @@ def main() -> None:
             problem_refs = normalize_problem_refs(args.problems)
         except ValueError as exc:
             parser.error(str(exc))
-        run_models(
-            problem_refs,
-            args.models,
-            args.orders,
-            args.runs,
-            start_run=args.start_run,
-            jobs=args.jobs,
-            force=args.force,
-        )
+        try:
+            run_models(
+                problem_refs,
+                args.models,
+                args.orders,
+                args.runs,
+                start_run=args.start_run,
+                jobs=args.jobs,
+                force=args.force,
+            )
+        except ModelRunFailure as exc:
+            parser.exit(1, f"{exc}\n")
+        except subprocess.CalledProcessError as exc:
+            parser.exit(exc.returncode or 1, f"{exc}\n")
         return
 
     if args.command == "report":
