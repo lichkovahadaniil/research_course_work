@@ -5,7 +5,6 @@ DOMAIN_TYPES = ["logistics"]
 TASK_NAMES = ["alpha"]
 PROBLEM_IDS = [f"p{index}" for index in range(1, 21)]
 MODEL_NAMES = [
-    "cohere/north-mini-code:free",
     "deepseek/deepseek-v4-flash",
     "gpt-oss-120b",
     "nemotron-3-super",

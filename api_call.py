@@ -13,19 +13,11 @@ load_dotenv()
 
 
 MODEL_ALIASES = {
-    "cohere/north-mini-code:free": "cohere/north-mini-code:free",
     "deepseek/deepseek-v4-flash": "deepseek/deepseek-v4-flash",
     "gpt-oss-120b": "openai/gpt-oss-120b",
     "nemotron-3-super": "nvidia/nemotron-3-super-120b-a12b",
 }
 MODEL_CONFIG = {
-    "cohere/north-mini-code:free": {
-        "max_tokens": None,
-        "supports_reasoning": True,
-        "reasoning_effort": "medium",
-        "temperature": 1.0,
-        "top_p": 0.95,
-    },
     "deepseek/deepseek-v4-flash": {
         "max_tokens": None,
         "supports_reasoning": True,
