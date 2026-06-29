@@ -1,24 +1,834 @@
-(create_candidate shift_candidate_alpha)
-(allocate_vehicle_unit shift_candidate_alpha vehicle_unit_alpha)
-(attach_task_profile shift_candidate_alpha route_task_profile_alpha)
-(confirm_candidate_preparedness shift_candidate_alpha route_task_profile_alpha)
-(assign_operator_resource shift_candidate_alpha driver_operator_alpha)
-(apply_operational_constraint shift_candidate_alpha operational_constraint_alpha route_task_profile_alpha)
-(confirm_operator_alignment shift_candidate_alpha driver_operator_alpha)
-(assign_compliance_certificate shift_candidate_alpha compliance_certificate_alpha)
-(verify_compliance_certificate shift_candidate_alpha compliance_certificate_alpha)
-(finalize_candidate_after_compliance_validation shift_candidate_alpha)
-(allocate_dispatch_slot_for_candidate shift_candidate_alpha dispatch_slot_alpha route_task_profile_alpha)
-(execute_schedule_dispatch shift_candidate_alpha vehicle_unit_alpha dispatch_slot_alpha)
-(detach_task_profile shift_candidate_alpha route_task_profile_alpha)
-(release_operator_resource shift_candidate_alpha driver_operator_alpha)
-(release_compliance_certificate shift_candidate_alpha compliance_certificate_alpha)
-(create_candidate origin_availability_alpha)
-(allocate_vehicle_unit origin_availability_alpha vehicle_unit_alpha)
-(attach_task_profile origin_availability_alpha route_task_profile_alpha)
-(confirm_candidate_preparedness origin_availability_alpha route_task_profile_alpha)
-(assign_operator_resource origin_availability_alpha driver_operator_alpha)
-(allocate_dispatch_slot_for_candidate origin_availability_alpha dispatch_slot_alpha route_task_profile_alpha)
-(execute_origin_dispatch origin_availability_alpha vehicle_unit_alpha dispatch_slot_alpha)
-(detach_task_profile origin_availability_alpha route_task_profile_alpha)
-(create_candidate shift_candidate_beta)
+We need to output a plan achieving the goal:
+
+Goal: (and
+ (dispatched shift_candidate_alpha)
+ (dispatched origin_availability_alpha)
+ (candidate_created shift_candidate_beta)
+ (compliance_certificate_available compliance_certificate_alpha)
+ (route_task_profile_available route_task_profile_alpha))
+
+So we need to achieve:
+
+- dispatched shift_candidate_alpha: that's the schedule candidate? The execute_schedule_dispatch action requires candidate as schedule_candidate? Actually execute_schedule_dispatch takes ?candidate - schedule_candidate, ?vehicle_unit - vehicle_unit, ?dispatch_slot - dispatch_slot. Yes, shift_candidate_alpha is schedule_candidate.
+
+- dispatched origin_availability_alpha: origin_availability_alpha is origin_candidate_availability (origin_availability). There is an action execute_origin_dispatch that takes ?origin_availability - origin_candidate_availability, etc.
+
+- candidate_created shift_candidate_beta: we need to create candidate beta as candidate_entity (schedule_candidate). Since shift_candidate_beta is declared as schedule_candidate, but also candidate entity type? schedule_candidate is a subclass of candidate_entity? In types, schedule_candidate is a type under dispatch_proposal? Actually they defined schedule_candidate as a type under dispatch_proposal? In domain they have types: ... dispatch_proposal - candidate_entity ... schedule_candidate - dispatch_proposal. So schedule_candidate is a subclass of dispatch_proposal which is subclass of candidate_entity. So shift_candidate_beta is a schedule_candidate, thus also candidate_entity. So to get candidate_created we need to execute create_candidate on shift_candidate_beta (or we could also have other ways, but need candidate_created true). Note candidate_created is a predicate for candidate_entity.
+
+- compliance_certificate_available compliance_certificate_alpha: must be available (not linked). Initially it's available in init: (compliance_certificate_available compliance_certificate_alpha). However some actions may consume it (e.g., assign_compliance_certificate, verify_compliance_certificate, etc.) Might need to keep it available. We need to ensure not to use it. If any action consumes it, we must re-release via release_compliance_certificate (which makes it available again). So we should avoid linking it.
+
+- route_task_profile_available route_task_profile_alpha: initially available. Some actions consume it: attach_task_profile (consumes), detach_task_profile (makes available). Also some actions may require it but not consume? Actually attach_task_profile consumes it (makes not available). detach_task_profile releases it (makes available). Also finalize actions may not consume. So we need to ensure after plan it's available. So we either avoid using it, or if we use it we must detach after.
+
+Goal includes both dispatched shift_candidate_alpha and dispatched origin_availability_alpha. We'll need to perform steps to dispatch both.
+
+We also need to create candidate beta.
+
+We need to ensure we don't inadvertently consume compliance certificate or route task profile.
+
+We need to consider preconditions.
+
+We have many objects: origin_availability_alpha, destination_availability_alpha, vehicle units, etc.
+
+We need to produce a plan that is minimal number of actions. Let's think.
+
+We need to create shift_candidate_beta: just create_candidate shift_candidate_beta. That's one action.
+
+We need to have compliance_certificate_available: it's already available; just don't use it.
+
+We need route_task_profile_available: also initially available; don't use.
+
+Now we need to dispatch shift_candidate_alpha (schedule_candidate). To dispatch a schedule_candidate, we need:
+
+- dispatch_allocated ?candidate (candidate_dispatch_slot_linked ?candidate ?dispatch_slot)
+- candidate_vehicle_linked ?candidate ?vehicle_unit
+- (not dispatched ?candidate)
+
+Then execute_schedule_dispatch will set dispatched true, and release vehicle and dispatch_slot.
+
+Thus we need to allocate vehicle, allocate dispatch slot, and ensure dispatch_ready ?candidate (precondition of allocate_dispatch_slot_for_candidate). Actually allocate_dispatch_slot_for_candidate requires dispatch_ready ?candidate.
+
+So before allocate_dispatch_slot_for_candidate we need dispatch_ready ?candidate.
+
+How to get dispatch_ready? For schedule_candidate, there is action finalize_candidate_after_compliance_validation (makes dispatch_ready). Also finalize_candidate_direct (makes dispatch_ready). Also finalize_candidate_after_sequence_validation (makes dispatch_ready). There's also mark_origin_availability_dispatch_ready and mark_destination_availability_dispatch_ready but those are for origin/destination availability, not schedule candidate.
+
+Thus we need to make shift_candidate_alpha dispatch_ready via finalizing after compliance validation (or other). Let's see what's needed for finalize_candidate_after_compliance_validation:
+
+Precondition: compliance_validation_complete ?candidate and not candidate_finalized ?candidate.
+
+Effect: candidate_finalized ?candidate and dispatch_ready ?candidate.
+
+Thus we need compliance_validation_complete for shift_candidate_alpha.
+
+To get compliance_validation_complete, we need verify_compliance_certificate action:
+
+Precondition: operator_alignment_confirmed ?candidate, candidate_compliance_certificate_linked ?candidate ?compliance_certificate, (not compliance_validation_complete ?candidate)
+
+Effect: compliance_validation_complete ?candidate.
+
+Thus we need operator_alignment_confirmed and candidate_compliance_certificate_linked.
+
+Operator_alignment_confirmed precondition: constraint_applied ?candidate, candidate_operator_linked ?candidate ?operator_resource, (not operator_alignment_confirmed ?candidate).
+
+Effect: operator_alignment_confirmed ?candidate.
+
+Thus we need constraint_applied and candidate_operator_linked.
+
+Constraint_applied via apply_operational_constraint action:
+
+Precondition: candidate_prepared ?candidate, candidate_task_profile_linked ?candidate ?route_task_profile, operational_constraint_available ?operational_constraint, candidate_operational_constraint_linked ?candidate ?operational_constraint, (not constraint_applied ?candidate)
+
+Effect: constraint_applied ?candidate, (not operational_constraint_available ?operational_constraint)
+
+Thus we need candidate_prepared, candidate_task_profile_linked, operational_constraint_available, candidate_operational_constraint_linked.
+
+Candidate_operator_linked via assign_operator_resource:
+
+Precondition: candidate_prepared ?candidate, operator_available ?operator_resource
+
+Effect: candidate_operator_linked ?candidate ?operator_resource, (not operator_available ?operator_resource)
+
+Thus we need candidate_prepared and operator available.
+
+Candidate_prepared via confirm_candidate_preparedness:
+
+Precondition: candidate_created ?candidate, vehicle_allocated ?candidate, candidate_task_profile_linked ?candidate ?route_task_profile, (not candidate_prepared ?candidate)
+
+Effect: candidate_prepared ?candidate
+
+Thus we need candidate_created, vehicle_allocated, candidate_task_profile_linked.
+
+Vehicle_allocated via allocate_vehicle_unit:
+
+Precondition: candidate_created ?candidate, not vehicle_allocated ?candidate, vehicle_available ?vehicle_unit
+
+Effect: vehicle_allocated ?candidate, candidate_vehicle_linked ?candidate ?vehicle_unit, (not vehicle_available ?vehicle_unit)
+
+Thus we need candidate_created and vehicle available.
+
+Candidate_task_profile_linked via attach_task_profile:
+
+Precondition: candidate_created ?candidate, vehicle_allocated ?candidate, route_task_profile_available ?route_task_profile
+
+Effect: candidate_task_profile_linked ?candidate ?route_task_profile, (not route_task_profile_available ?route_task_profile)
+
+Thus we need candidate_created, vehicle_allocated, route_task_profile available.
+
+Thus chain for shift_candidate_alpha to become dispatch_ready:
+
+1. create_candidate shift_candidate_alpha (if not already created? In init we have candidate_origin_availability_linked etc for shift_candidate_alpha, but we don't have candidate_created shift_candidate_alpha. The init includes links but not candidate_created. So we need to create it.)
+
+2. allocate_vehicle_unit shift_candidate_alpha some vehicle_unit (choose vehicle_unit_alpha maybe)
+
+3. attach_task_profile shift_candidate_alpha route_task_profile_alpha (this will consume route_task_profile, making it unavailable; we need it to be available at goal, so we must later detach it via detach_task_profile to make it available again. However we could avoid using attach_task_profile if we can get candidate_task_profile_linked via other means? No, only attach_task_profile creates that link. So we must attach then later detach.
+
+Thus after attach, route_task_profile becomes unavailable. We'll need to detach later after we no longer need it for further steps (like after constraint applied etc). But note that constraint_applied requires candidate_task_profile_linked. So we need the link to stay until after apply_operational_constraint. After that, we could detach.
+
+Thus steps:
+
+- create_candidate shift_candidate_alpha
+- allocate_vehicle_unit shift_candidate_alpha vehicle_unit_alpha (or any)
+- attach_task_profile shift_candidate_alpha route_task_profile_alpha (consumes route_task_profile)
+- confirm_candidate_preparedness shift_candidate_alpha route_task_profile_alpha (requires candidate_created, vehicle_allocated, candidate_task_profile_linked)
+- assign_operator_resource shift_candidate_alpha driver_operator_alpha (requires candidate_prepared, operator_available)
+- apply_operational_constraint shift_candidate_alpha operational_constraint_alpha route_task_profile_alpha (requires candidate_prepared, candidate_task_profile_linked, operational_constraint_available, candidate_operational_constraint_linked (we have it from init), not constraint_applied)
+- confirm_operator_alignment shift_candidate_alpha driver_operator_alpha (requires constraint_applied, candidate_operator_linked)
+- assign_compliance_certificate shift_candidate_alpha compliance_certificate_alpha (requires candidate_prepared, compliance_certificate_available) (this will consume compliance certificate, making it unavailable; we need it available at goal, so we must later release it via release_compliance_certificate after verification)
+- verify_compliance_certificate shift_candidate_alpha compliance_certificate_alpha (requires operator_alignment_confirmed, candidate_compliance_certificate_linked)
+- finalize_candidate_after_compliance_validation shift_candidate_alpha (requires compliance_validation_complete)
+- allocate_dispatch_slot_for_candidate shift_candidate_alpha dispatch_slot_alpha route_task_profile_alpha (requires dispatch_ready, candidate_task_profile_linked, dispatch_slot_available)
+   Note: after finalize, we have dispatch_ready true. Also we still have candidate_task_profile_linked (we haven't detached yet). Good.
+- execute_schedule_dispatch shift_candidate_alpha vehicle_unit_alpha dispatch_slot_alpha (requires dispatch_allocated, candidate_vehicle_linked, candidate_dispatch_slot_linked)
+This will set dispatched shift_candidate_alpha true, release vehicle and dispatch slot.
+
+Now we also need to dispatch origin_availability_alpha.
+
+Origin availability is origin_candidate_availability. To dispatch it, we need to execute_origin_dispatch which requires:
+
+- dispatch_allocated ?origin_availability
+- candidate_vehicle_linked ?origin_availability ?vehicle_unit
+- candidate_dispatch_slot_linked ?origin_availability ?dispatch_slot
+- not dispatched ?origin_availability
+
+Thus we need to prepare origin_availability_alpha similarly to a schedule candidate? But origin_availability is an origin_candidate_availability, which is a type of candidate_entity? Actually origin_candidate_availability is a type under candidate_entity? Let's check: In types: origin_candidate_availability - driver_availability_state? Wait they have many types: driver_availability_state - candidate_entity ... origin_candidate_availability - driver_availability_state? Actually they defined: driver_availability_state - candidate_entity; origin_candidate_availability - driver_availability_state; destination_candidate_availability - driver_availability_state; schedule_candidate - dispatch_proposal. So origin_candidate_availability is a subclass of driver_availability_state which is subclass of candidate_entity. So it's also a candidate_entity.
+
+Thus we can treat origin_availability_alpha similarly: need to create candidate? It already exists as an object, but we need candidate_created? The predicate candidate_created applies to candidate_entity. We need candidate_created origin_availability_alpha to be true for many actions (like candidate_prepared etc). In init we have candidate_origin_availability_linked shift_candidate_alpha origin_availability_alpha etc, but not candidate_created. So we need to create candidate for origin_availability_alpha as well.
+
+Similarly for destination? Not needed for goal but may be needed for some steps? For origin dispatch we may need to have origin_availability prepared etc.
+
+Let's see what actions are available for origin_availability:
+
+- load_origin_payload: requires candidate_prepared ?origin_availability, origin_availability_node_linked ?origin_availability ?origin_node, cargo_available ?payload_unit, not origin_availability_locked ?origin_availability. Effects: origin_node_occupied, origin_availability_locked, origin_payload_linked, not cargo_available.
+
+- unload_origin_payload: requires candidate_prepared ?origin_availability, candidate_task_profile_linked ?origin_availability ?route_task_profile, origin_availability_node_linked ?origin_availability ?origin_node, origin_node_occupied ?origin_node, origin_payload_linked ?origin_availability ?payload_unit, not origin_availability_confirmed ?origin_availability. Effects: origin_node_ready, origin_availability_confirmed, cargo_available, not origin_payload_linked.
+
+- activate_origin_node: requires candidate_prepared ?origin_availability, candidate_task_profile_linked ?origin_availability ?route_task_profile, origin_availability_node_linked ?origin_availability ?origin_node, not origin_node_ready ?origin_node, not origin_node_occupied ?origin_node. Effect: origin_node_ready.
+
+- lock_origin_availability: requires candidate_prepared ?origin_availability, candidate_operator_linked ?origin_availability ?operator_resource, origin_availability_node_linked ?origin_availability ?origin_node, origin_node_ready ?origin_node, not origin_availability_locked ?origin_availability. Effects: origin_availability_locked, origin_availability_confirmed.
+
+- mark_origin_availability_dispatch_ready: requires origin_availability_locked ?origin_availability, origin_availability_confirmed ?origin_availability, transport_leg_assembled ?transport_leg, transport_leg_loading_authorized ?transport_leg, not dispatch_ready ?origin_availability. Effect: dispatch_ready ?origin_availability.
+
+- execute_origin_dispatch: requires dispatch_allocated ?origin_availability, candidate_vehicle_linked ?origin_availability ?vehicle_unit, candidate_dispatch_slot_linked ?origin_availability ?dispatch_slot, not dispatched ?origin_availability. Effect: dispatched ?origin_availability, vehicle_available, dispatch_slot_available.
+
+Thus to dispatch origin_availability_alpha we need to go through similar steps: create candidate, allocate vehicle, attach task profile, confirm preparedness, assign operator, lock origin availability (which requires candidate_operator_linked, origin_node_ready, etc). But lock_origin_availability also requires candidate_prepared and candidate_operator_linked, origin_availability_node_linked, origin_node_ready, not origin_availability_locked.
+
+Thus we need to prepare origin_availability similarly: need candidate_created, vehicle_allocated, candidate_task_profile_linked, candidate_prepared, candidate_operator_linked, origin_node_ready, origin_availability_locked and confirmed, then we need to have transport leg assembled and loading authorized, then mark_origin_availability_dispatch_ready, then allocate dispatch slot and vehicle? Actually execute_origin_dispatch requires dispatch_allocated, candidate_vehicle_linked, candidate_dispatch_slot_linked. So we need to allocate dispatch slot and vehicle for origin_availability as well (like we did for schedule candidate). There's action allocate_dispatch_slot_for_candidate which works for candidate_entity (includes origin_availability). Precondition: dispatch_ready ?candidate, candidate_task_profile_linked ?candidate ?route_task_profile, dispatch_slot_available ?dispatch_slot, not dispatch_allocated ?candidate.
+
+Thus we need dispatch_ready for origin_availability, which we can get via mark_origin_availability_dispatch_ready after we have origin_availability_locked, origin_availability_confirmed, transport_leg_assembled, transport_leg_loading_authorized.
+
+Thus we need to assemble a transport leg and authorize loading.
+
+Transport leg assembly: we have assemble_transport_leg action (requires origin_availability_locked, destination_availability_locked, origin_availability_node_linked, destination_availability_node_linked, origin_node_ready, destination_node_ready, origin_availability_confirmed, destination_availability_confirmed, transport_leg_available). Effects: transport_leg_assembled, origin/destination linked, not transport_leg_available.
+
+But there are also specialized assemble actions: assemble_origin_loaded_leg, assemble_destination_loaded_leg, assemble_fully_loaded_leg. However for mark_origin_availability_dispatch_leg we just need transport_leg_assembled and transport_leg_loading_authorized. The loading authorized action requires transport_leg_assembled, origin_availability_locked, candidate_task_profile_linked ?origin_availability ?route_task_profile. Actually authorize_transport_leg_loading: parameters ?transport_leg, ?origin_availability, ?route_task_profile. Precondition: transport_leg_assembled ?transport_leg, origin_availability_locked ?origin_availability, candidate_task_profile_linked ?origin_availability ?route_task_profile, not transport_leg_loading_authorized ?transport_leg. Effect: transport_leg_loading_authorized ?transport_leg.
+
+Thus we need to have origin_availability_locked, candidate_task_profile_linked for origin_availability, and a transport leg assembled.
+
+Thus overall for origin_availability_alpha dispatch we need:
+
+- create_candidate origin_availability_alpha
+- allocate_vehicle_unit origin_availability_alpha some vehicle (maybe vehicle_unit_beta)
+- attach_task_profile origin_availability_alpha route_task_profile_alpha (this will again consume route_task_profile; but we already used it for shift_candidate_alpha and plan to detach later. We'll need to manage usage carefully.)
+- confirm_candidate_preparedness origin_availability_alpha route_task_profile_alpha
+- assign_operator_resource origin_availability_alpha driver_operator_alpha (but note operator may already be allocated to shift_candidate_alpha; after we assign operator to shift_candidate_alpha, operator becomes unavailable. We could release operator after shift_candidate_alpha dispatch? There's release_operator_resource action that makes operator available again. So we could assign operator to shift_candidate_alpha, then after dispatch we release it, then reuse for origin_availability. Or we could use a different operator but we only have driver_operator_alpha. So we need to release after shift_candidate_alpha dispatch.
+
+Thus plan steps:
+
+1. create_candidate shift_candidate_alpha
+2. allocate_vehicle_unit shift_candidate_alpha vehicle_unit_alpha
+3. attach_task_profile shift_candidate_alpha route_task_profile_alpha
+4. confirm_candidate_preparedness shift_candidate_alpha route_task_profile_alpha
+5. assign_operator_resource shift_candidate_alpha driver_operator_alpha
+6. apply_operational_constraint shift_candidate_alpha operational_constraint_alpha route_task_profile_alpha
+7. confirm_operator_alignment shift_candidate_alpha driver_operator_alpha
+8. assign_compliance_certificate shift_candidate_alpha compliance_certificate_alpha
+9. verify_compliance_certificate shift_candidate_alpha compliance_certificate_alpha
+10. finalize_candidate_after_compliance_validation shift_candidate_alpha
+11. allocate_dispatch_slot_for_candidate shift_candidate_alpha dispatch_slot_alpha route_task_profile_alpha
+12. execute_schedule_dispatch shift_candidate_alpha vehicle_unit_alpha dispatch_slot_alpha
+13. release_operator_resource shift_candidate_alpha driver_operator_alpha (makes operator available again)
+14. release_compliance_certificate shift_candidate_alpha compliance_certificate_alpha (makes compliance certificate available again)
+15. detach_task_profile shift_candidate_alpha route_task_profile_alpha (makes route_task_profile available again) (But note after execute_schedule_dispatch, we still have candidate_task_profile_linked? The action does not affect it. So we need to detach to make route_task_profile available for goal.)
+
+Now we have shift_candidate_alpha dispatched, operator free, compliance certificate free, route_task_profile free.
+
+Now we need to create shift_candidate_beta (candidate_created). Actually we need candidate_created shift_candidate_beta true. We can just do create_candidate shift_candidate_beta.
+
+But we also need to maybe keep it just created, not further processed. So just create_candidate shift_candidate_beta.
+
+Now we need to dispatch origin_availability_alpha.
+
+We need to prepare origin_availability_alpha similarly, but we must ensure we don't consume route_task_profile again (since we need it available at goal). We'll need to attach_task_profile for origin_availability_alpha, then later detach after we are done with origin dispatch.
+
+Thus steps for origin_availability:
+
+- create_candidate origin_availability_alpha
+- allocate_vehicle_unit origin_availability_alpha vehicle_unit_beta (or gamma)
+- attach_task_profile origin_availability_alpha route_task_profile_alpha (consumes again)
+- confirm_candidate_preparedness origin_availability_alpha route_task_profile_alpha
+- assign_operator_resource origin_availability_alpha driver_operator_alpha (need operator available; we released after step 13)
+- lock_origin_availability origin_availability_alpha driver_operator_alpha origin_node_alpha (requires candidate_prepared, candidate_operator_linked, origin_availability_node_linked, origin_node_ready, not origin_availability_locked). But we need origin_node_ready. We have not activated origin_node yet. There's action activate_origin_node: requires candidate_prepared, candidate_task_profile_linked, origin_availability_node_linked, not origin_node_ready, not origin_node_occupied. So we need to activate origin_node before locking.
+
+Thus steps:
+
+- activate_origin_node origin_availability_alpha origin_node_alpha route_task_profile_alpha (requires candidate_prepared, candidate_task_profile_linked, origin_availability_node_linked, not origin_node_ready, not origin_node_occupied)
+
+- lock_origin_availability origin_availability_alpha origin_node_alpha driver_operator_alpha (requires candidate_prepared, candidate_operator_linked, origin_availability_node_linked, origin_node_ready, not origin_availability_locked)
+
+But lock_origin_availability also needs candidate_operator_linked (we have after assign_operator_resource). Good.
+
+Now after lock, we have origin_availability_locked and origin_availability_confirmed.
+
+Now we need to assemble a transport leg and authorize loading.
+
+We need destination_availability_alpha also prepared? For assemble_transport_leg we need destination_availability_locked and destination_node_ready and destination_availability_confirmed. So we need to prepare destination_availability_alpha similarly (maybe we can just lock it without needing to load/unload payload? But we need destination_availability_locked and confirmed. To get those we need to prepare destination similarly: create_candidate, allocate vehicle? Actually destination_availability is a destination_candidate_availability; we may not need to allocate vehicle for it? The lock_destination_availability action requires candidate_prepared, candidate_operator_linked, destination_availability_node_linked, destination_node_ready, not destination_availability_locked. So we need candidate_prepared for destination_availability as well, which requires candidate_created, vehicle_allocated, candidate_task_profile_linked, candidate_prepared. So we need to prepare destination similarly (including vehicle allocation etc). However maybe we can use assemble_origin_loaded_leg or assemble_destination_loaded_leg which have different preconditions. Let's examine.
+
+Goal only requires dispatched origin_availability_alpha, not destination. However to mark_origin_availability_dispatch_ready we need transport_leg_assembled and transport_leg_loading_authorized. The authorize_transport_leg_loading requires origin_availability_locked and candidate_task_profile_linked for origin_availability. It does not require destination_availability locked/confirmed. So we might not need to prepare destination at all for the origin dispatch? Wait but transport_leg_assembled requires destination_availability_locked etc per assemble_transport_leg. However there are other assemble actions: assemble_origin_loaded_leg requires origin_node_occupied, destination_node_ready, origin_availability_locked, destination_availability_locked, origin_availability_confirmed, destination_availability_confirmed? Let's check: assemble_origin_loaded_leg preconditions: origin_availability_locked, destination_availability_locked, origin_availability_node_linked, destination_availability_node_linked, origin_node_occupied, destination_node_ready, not origin_availability_confirmed, destination_availability_confirmed, transport_leg_available. So still needs destination_availability_locked and confirmed.
+
+Assemble_destination_loaded_leg: requires origin_node_ready, destination_node_occupied, origin_availability_confirmed, not destination_availability_confirmed.
+
+Assemble_fully_loaded_leg: requires origin_node_occupied, destination_node_occupied, not origin_availability_confirmed, not destination_availability_confirmed.
+
+Thus all assemble actions require both origin and destination availability locked (or at least some combination). So we need to prepare destination availability as well to get a transport leg assembled.
+
+Thus we need to prepare destination_availability_alpha similarly: create candidate, allocate vehicle, attach task profile, confirm preparedness, assign operator, lock destination.
+
+But note we have limited operators (only one). We'll need to release operator after each use.
+
+We also need to manage vehicle allocations: we have three vehicles: alpha, beta, gamma. We can use different ones for each candidate to avoid conflicts.
+
+We also need to manage loading containers etc? Not needed for origin dispatch? The mark_origin_availability_dispatch_ready does not require loading container. So we can skip loading container steps.
+
+Thus for origin dispatch we need:
+
+- Prepare origin_availability_alpha (create, allocate vehicle, attach task profile, confirm prepared, assign operator, activate origin node, lock origin)
+- Prepare destination_availability_alpha (similar steps but maybe we don't need to activate destination node? For lock_destination_availability we need destination_node_ready. So we need to activate destination node similarly: activate_destination_node requires candidate_prepared, candidate_task_profile_linked, destination_availability_node_linked, not destination_node_ready, not destination_node_occupied.
+- Then lock_destination_availability.
+
+After we have both origin and destination locked/confirmed, we can assemble transport leg (using assemble_transport_leg). Then authorize loading (authorize_transport_leg_loading). Then mark_origin_availability_dispatch_ready. Then allocate dispatch slot and vehicle for origin_availability (we already have vehicle allocated to origin_availability? Wait we allocated vehicle to origin_availability earlier for its preparation. That vehicle is still linked (candidate_vehicle_linked). After we lock origin, the vehicle remains allocated? The allocate_vehicle_unit action does not get released until we execute a dispatch (execute_origin_dispatch or execute_schedule_dispatch) or maybe we could release via some other action? There's no explicit release vehicle action except via execute_*_dispatch which makes vehicle_available. So we need to keep the vehicle allocated to origin_availability until we execute_origin_dispatch. That's fine.
+
+Thus after we have origin_availability prepared (vehicle allocated, etc), we need to allocate dispatch slot for origin_availability (allocate_dispatch_slot_for_candidate). Then execute_origin_dispatch.
+
+Now we also need to ensure we haven't consumed route_task_profile permanently; we attached for origin_availability and will need to detach after we are done (maybe after execute_origin_dispatch? The dispatch action does not affect task profile link. So we need to detach after we are done with origin_availability to make route_task_profile available for goal.
+
+Thus after execute_origin_dispatch we can detach_task_profile origin_availability_alpha route_task_profile_alpha.
+
+But note we also used route_task_profile for shift_candidate_alpha earlier and detached after its dispatch. So after step 15 we detached for shift_candidate_alpha, making it available. Then we attach for origin_availability (step ??) and later detach after origin dispatch.
+
+Now we also need to ensure we don't accidentally consume compliance certificate or other resources needed for goal. We already released compliance certificate after shift_candidate_alpha verification.
+
+Now we need to ensure we don't inadvertently consume any other resources that are required to be available at goal: only compliance_certificate_alpha and route_task_profile_alpha need to be available. Others can be anything.
+
+Now we need to count actions and try to minimize.
+
+We have many steps; perhaps we can find a shorter path.
+
+Alternative: Could we dispatch origin_availability_alpha without needing to prepare destination? Maybe we can use mark_origin_availability_dispatch_ready with transport_leg_assembled and loading authorized, but maybe we can get transport_leg_assembled via assemble_origin_loaded_leg which requires destination_availability_locked etc. So still need destination.
+
+Alternatively, maybe we can dispatch origin_availability_alpha using execute_origin_dispatch without needing transport leg at all? The execute_origin_dispatch does not require transport leg. It only requires dispatch_allocated, candidate_vehicle_linked, candidate_dispatch_slot_linked. So we don't need transport leg for origin dispatch! Wait earlier we thought we needed mark_origin_availability_dispatch_ready to get dispatch_ready, but execute_origin_dispatch does not require dispatch_ready; it requires dispatch_allocated. So we can allocate dispatch slot directly if we have dispatch_ready? Actually allocate_dispatch_slot_for_candidate requires dispatch_ready ?candidate. So we need dispatch_ready to allocate dispatch slot. So we need to make origin_availability dispatch_ready via mark_origin_availability_dispatch_ready, which does require transport leg assembled and loading authorized. So we still need transport leg.
+
+Thus we need to prepare destination.
+
+Ok.
+
+Now we need to prepare destination similarly.
+
+Let's outline steps for destination_availability_alpha:
+
+- create_candidate destination_availability_alpha
+- allocate_vehicle_unit destination_availability_alpha vehicle_unit_gamma (use remaining vehicle)
+- attach_task_profile destination_availability_alpha route_task_profile_alpha (again consumes route_task_profile; we'll need to detach later)
+- confirm_candidate_preparedness destination_availability_alpha route_task_profile_alpha
+- assign_operator_resource destination_availability_alpha driver_operator_alpha (need operator; we will have released after origin lock? We'll need to manage.)
+- activate_destination_node destination_availability_alpha destination_node_alpha route_task_profile_alpha
+- lock_destination_availability destination_availability_alpha destination_node_alpha driver_operator_alpha
+
+Now after we have both origin and destination locked/confirmed, we can assemble transport leg.
+
+But note: lock_origin_availability and lock_destination_availability each set *_availability_confirmed true. Good.
+
+Now assemble_transport_leg:
+
+Preconditions: origin_availability_locked, destination_availability_locked, origin_availability_node_linked, destination_availability_node_linked, origin_node_ready, destination_node_ready, origin_availability_confirmed, destination_availability_confirmed, transport_leg_available.
+
+We have origin_node_ready from activate_origin_node, destination_node_ready from activate_destination_node. We have origin_availability_node_linked and destination_availability_node_linked from init.
+
+Thus we can call assemble_transport_leg origin_availability_alpha destination_availability_alpha origin_node_alpha destination_node_alpha transport_leg_alpha.
+
+Effect: transport_leg_assembled, origin/destination linked, not transport_leg_available.
+
+Now authorize_transport_leg_loading: requires transport_leg_assembled, origin_availability_locked, candidate_task_profile_linked ?origin_availability ?route_task_profile, not transport_leg_loading_authorized.
+
+We have origin_availability_locked, we need candidate_task_profile_linked for origin_availability. We attached task profile earlier for origin_availability, so we have that link. Good.
+
+Effect: transport_leg_loading_authorized.
+
+Now mark_origin_availability_dispatch_ready: requires origin_availability_locked, origin_availability_confirmed, transport_leg_assembled, transport_leg_loading_authorized, not dispatch_ready ?origin_availability.
+
+Effect: dispatch_ready ?origin_availability.
+
+Now allocate_dispatch_slot_for_candidate origin_availability_alpha dispatch_slot_alpha route_task_profile_alpha (need dispatch_ready, candidate_task_profile_linked, dispatch_slot_available, not dispatch_allocated). We have dispatch_ready now, candidate_task_profile_linked (still), dispatch_slot_available (we used dispatch_slot_alpha for shift_candidate_alpha but after execute_schedule_dispatch we released it, making it available again). Good.
+
+Effect: dispatch_allocated, candidate_dispatch_slot_linked, not dispatch_slot_available.
+
+Now execute_origin_dispatch origin_availability_alpha vehicle_unit_beta dispatch_slot_alpha (need dispatch_allocated, candidate_vehicle_linked, candidate_dispatch_slot_linked). We have vehicle allocated to origin_availability_alpha (vehicle_unit_beta). Good.
+
+Effect: dispatched origin_availability_alpha, vehicle_available, dispatch_slot_available.
+
+Now we need to detach task profile for origin_availability_alpha to make route_task_profile available.
+
+detach_task_profile origin_availability_alpha route_task_profile_alpha.
+
+Now we also need to detach task profile for destination_availability_alpha? Not required for goal, but we might want to release route_task_profile? Actually we attached task profile to destination_availability_alpha as well, which consumes route_task_profile. We need to detach it to make it available. However we could avoid attaching task profile to destination_availability_alpha if we don't need it for lock_destination_availability? lock_destination_availability requires candidate_prepared, which requires candidate_task_profile_linked. So we need task profile link for destination as well. So we must attach and later detach.
+
+Thus after we are done with destination (after lock_destination_availability maybe), we can detach its task profile.
+
+But note we need destination_availability_locked and confirmed for assemble_transport_leg. After we assemble transport leg, we might still need destination_availability_locked? The assemble action does not change those predicates. So we can keep them locked. After we are done with origin dispatch, we may want to release destination? Not required for goal. But we might want to detach its task profile to free route_task_profile. However we already detached for origin_availability; we still have destination's task profile linked, consuming route_task_profile. So we need to detach that as well.
+
+Thus after we have used destination's task profile for lock_destination_assembly etc, we can detach after we no longer need it (maybe after assemble_transport_leg? Actually assemble_transport_leg does not require candidate_task_profile_linked for destination; it only requires destination_availability_node_linked, etc. So we could detach destination's task profile after lock_destination_availability (which required candidate_prepared which required candidate_task_profile_linked). After lock, we no longer need the task profile link for destination. So we can detach after lock_destination_availability.
+
+Thus steps for destination:
+
+- create_candidate destination_availability_alpha
+- allocate_vehicle_unit destination_availability_alpha vehicle_unit_gamma
+- attach_task_profile destination_availability_alpha route_task_profile_alpha
+- confirm_candidate_preparedness destination_availability_alpha route_task_profile_alpha
+- assign_operator_resource destination_availability_alpha driver_operator_alpha
+- activate_destination_node destination_availability_alpha destination_node_alpha route_task_profile_alpha
+- lock_destination_availability destination_availability_alpha destination_node_alpha driver_operator_alpha
+- detach_task_profile destination_availability_alpha route_task_profile_alpha (to free route_task_profile)
+Now we have destination locked/confirmed, vehicle allocated, operator assigned (still linked). We may need to release operator later? Not required for goal but could be good to release to keep operator available (not required). We'll release after we are done with destination maybe after assemble_transport_leg? Actually lock_destination_availability does not require operator after; but we might want to release operator to keep it free. Not needed for goal.
+
+Now we have origin prepared (including vehicle allocated, operator assigned, origin node activated, origin locked). We still have operator linked to origin_availability (we assigned earlier). We may need to release operator after origin dispatch? Not required for goal.
+
+Now we need to ensure we have not consumed compliance certificate or route_task_profile. We released compliance after shift_candidate_alpha verification. We detached task profiles for shift_candidate_alpha, origin_availability, destination_availability. So route_task_profile should be available.
+
+Now we need to create shift_candidate_beta (candidate_created). We'll do that early maybe.
+
+Now we need to ensure we didn't accidentally consume any other required resources: we used vehicle_unit_alpha for shift_candidate_alpha, vehicle_unit_beta for origin_availability, vehicle_unit_gamma for destination_availability. After dispatches, vehicles become available again (via execute actions). So final vehicles all available.
+
+We used dispatch_slot_alpha for shift_candidate_alpha and then released after its dispatch, then used again for origin_availability and released after origin dispatch. So final dispatch slot available.
+
+We used operator driver_operator_alpha multiple times: assigned to shift_candidate_alpha, released after shift dispatch; assigned to origin_availability, maybe we can release after origin dispatch? Not required but we can release. Assigned to destination_availability, we could release after lock or after assemble. We'll release after lock maybe.
+
+Now we need to ensure we didn't inadvertently consume any other resources like loading_container, equipment, skill_certificate, service_window, etc. We didn't use them.
+
+Now we need to verify all preconditions are satisfied at each step.
+
+Let's write out the plan stepwise, checking each.
+
+We'll need to track state.
+
+Initial state:
+
+- vehicle_available: alpha, beta, gamma
+- route_task_profile_available: route_task_profile_alpha
+- operator_available: driver_operator_alpha
+- cargo_available: cargo_payload_alpha
+- origin_availability_node_linked origin_availability_alpha origin_node_alpha
+- destination_availability_node_linked destination_availability_alpha destination_node_alpha
+- transport_leg_available transport_leg_alpha
+- loading_container_available loading_container_alpha, loading_container_beta
+- candidate_origin_availability_linked shift_candidate_alpha origin_availability_alpha
+- candidate_origin_availability_linked shift_candidate_beta origin_availability_alpha
+- candidate_destination_availability_linked shift_candidate_alpha destination_availability_alpha
+- candidate_destination_availability_linked shift_candidate_beta destination_availability_alpha
+- candidate_transport_leg_linked shift_candidate_alpha transport_leg_alpha
+- candidate_transport_leg_linked shift_candidate_beta transport_leg_alpha
+- candidate_loading_container_linked shift_candidate_alpha loading_container_alpha
+- candidate_loading_container_linked shift_candidate_beta loading_container_beta
+- equipment_available equipment_resource_alpha, equipment_resource_beta
+- service_window_available service_window_alpha, service_window_beta
+- dispatch_slot_available dispatch_slot_alpha
+- skill_certificate_available skill_certificate_alpha
+- operational_constraint_available operational_constraint_alpha
+- candidate_operational_constraint_linked shift_candidate_alpha operational_constraint_alpha
+- candidate_operational_constraint_linked shift_candidate_beta operational_constraint_beta
+- compliance_certificate_available compliance_certificate_alpha
+
+Note: candidate_created? Not present for any candidate. candidate_prepared? Not present. etc.
+
+Now we start.
+
+Step 1: create_candidate shift_candidate_alpha
+Pre: not candidate_created shift_candidate_alpha, not dispatched shift_candidate_alpha (true). Effect: candidate_created shift_candidate_alpha.
+
+State: candidate_created shift_candidate_alpha true.
+
+Step 2: allocate_vehicle_unit shift_candidate_alpha vehicle_unit_alpha
+Pre: candidate_created shift_candidate_alpha (true), not vehicle_allocated shift_candidate_alpha (true), vehicle_available vehicle_unit_alpha (true). Effect: vehicle_allocated shift_candidate_alpha true, candidate_vehicle_linked shift_candidate_alpha vehicle_unit_alpha, not vehicle_available vehicle_unit_alpha.
+
+State: vehicle_allocated shift_candidate_alpha, candidate_vehicle_linked shift_candidate_alpha vehicle_unit_alpha, vehicle_unit_alpha not available.
+
+Step 3: attach_task_profile shift_candidate_alpha route_task_profile_alpha
+Pre: candidate_created shift_candidate_alpha (true), vehicle_allocated shift_candidate_alpha (true), route_task_profile_available route_task_profile_alpha (true). Effect: candidate_task_profile_linked shift_candidate_alpha route_task_profile_alpha, not route_task_profile_available route_task_profile_alpha.
+
+State: candidate_task_profile_linked shift_candidate_alpha route_task_profile_alpha, route_task_profile unavailable.
+
+Step 4: confirm_candidate_preparedness shift_candidate_alpha route_task_profile_alpha
+Pre: candidate_created shift_candidate_alpha (true), vehicle_allocated shift_candidate_alpha (true), candidate_task_profile_linked shift_candidate_alpha route_task_profile_alpha (true), not candidate_prepared shift_candidate_alpha (true). Effect: candidate_prepared shift_candidate_alpha true.
+
+Step 5: assign_operator_resource shift_candidate_alpha driver_operator_alpha
+Pre: candidate_prepared shift_candidate_alpha (true), operator_available driver_operator_alpha (true). Effect: candidate_operator_linked shift_candidate_alpha driver_operator_alpha, not operator_available driver_operator_alpha.
+
+Step 6: apply_operational_constraint shift_candidate_alpha operational_constraint_alpha route_task_profile_alpha
+Pre: candidate_prepared shift_candidate_alpha (true), candidate_task_profile_linked shift_candidate_alpha route_task_profile_alpha (true), operational_constraint_available operational_constraint_alpha (true), candidate_operational_constraint_linked shift_candidate_alpha operational_constraint_alpha (true from init), not constraint_applied shift_candidate_alpha (true). Effect: constraint_applied shift_candidate_alpha true, not operational_constraint_available operational_constraint_alpha.
+
+Step 7: confirm_operator_alignment shift_candidate_alpha driver_operator_alpha
+Pre: constraint_applied shift_candidate_alpha (true), candidate_operator_linked shift_candidate_alpha driver_operator_alpha (true), not operator_alignment_confirmed shift_candidate_alpha (true). Effect: operator_alignment_confirmed shift_candidate_alpha true.
+
+Step 8: assign_compliance_certificate shift_candidate_alpha compliance_certificate_alpha
+Pre: candidate_prepared shift_candidate_alpha (true), compliance_certificate_available compliance_certificate_alpha (true). Effect: candidate_compliance_certificate_linked shift_candidate_alpha compliance_certificate_alpha, not compliance_certificate_available compliance_certificate_alpha.
+
+Step 9: verify_compliance_certificate shift_candidate_alpha compliance_certificate_alpha
+Pre: operator_alignment_confirmed shift_candidate_alpha (true), candidate_compliance_certificate_linked shift_candidate_alpha compliance_certificate_alpha (true), not compliance_validation_complete shift_candidate_alpha (true). Effect: compliance_validation_complete shift_candidate_alpha true.
+
+Step10: finalize_candidate_after_compliance_validation shift_candidate_alpha
+Pre: compliance_validation_complete shift_candidate_alpha (true), not candidate_finalized shift_candidate_alpha (true). Effect: candidate_finalized shift_candidate_alpha true, dispatch_ready shift_candidate_alpha true.
+
+Step11: allocate_dispatch_slot_for_candidate shift_candidate_alpha dispatch_slot_alpha route_task_profile_alpha
+Pre: dispatch_ready shift_candidate_alpha (true), candidate_task_profile_linked shift_candidate_alpha route_task_profile_alpha (true), dispatch_slot_available dispatch_slot_alpha (true), not dispatch_allocated shift_candidate_alpha (true). Effect: dispatch_allocated shift_candidate_alpha true, candidate_dispatch_slot_linked shift_candidate_alpha dispatch_slot_alpha, not dispatch_slot_available dispatch_slot_alpha.
+
+Step12: execute_schedule_dispatch shift_candidate_alpha vehicle_unit_alpha dispatch_slot_alpha
+Pre: dispatch_allocated shift_candidate_alpha (true), candidate_vehicle_linked shift_candidate_alpha vehicle_unit_alpha (true), candidate_dispatch_slot_linked shift_candidate_alpha dispatch_slot_alpha (true), not dispatched shift_candidate_alpha (true). Effect: dispatched shift_candidate_alpha true, vehicle_available vehicle_unit_alpha, dispatch_slot_available dispatch_slot_alpha.
+
+Now after step12, shift_candidate_alpha dispatched.
+
+Step13: release_operator_resource shift_candidate_alpha driver_operator_alpha
+Pre: candidate_operator_linked shift_candidate_alpha driver_operator_alpha (true). Effect: operator_available driver_operator_alpha, not candidate_operator_linked shift_candidate_alpha driver_operator_alpha.
+
+Step14: release_compliance_certificate shift_candidate_alpha compliance_certificate_alpha
+Pre: candidate_compliance_certificate_linked shift_candidate_alpha compliance_certificate_alpha (true). Effect: compliance_certificate_available compliance_certificate_alpha, not candidate_compliance_certificate_linked shift_candidate_alpha compliance_certificate_alpha.
+
+Step15: detach_task_profile shift_candidate_alpha route_task_profile_alpha
+Pre: candidate_task_profile_linked shift_candidate_alpha route_task_profile_alpha (true). Effect: route_task_profile_available route_task_profile_alpha, not candidate_task_profile_linked shift_candidate_alpha route_task_profile_alpha.
+
+Now route_task_profile available again, compliance certificate available, operator available, vehicle_unit_alpha available, dispatch_slot_alpha available.
+
+Now we need to create shift_candidate_beta.
+
+Step16: create_candidate shift_candidate_beta
+Pre: not candidate_created shift_candidate_beta, not dispatched shift_candidate_beta (true). Effect: candidate_created shift_candidate_beta.
+
+Now we need to prepare origin_availability_alpha.
+
+Step17: create_candidate origin_availability_alpha
+Pre: not candidate_created origin_availability_alpha, not dispatched origin_availability_alpha (true). Effect: candidate_created origin_availability_alpha.
+
+Step18: allocate_vehicle_unit origin_availability_alpha vehicle_unit_beta
+Pre: candidate_created origin_availability_alpha (true), not vehicle_allocated origin_availability_alpha (true), vehicle_available vehicle_unit_beta (true). Effect: vehicle_allocated origin_availability_alpha, candidate_vehicle_linked origin_availability_alpha vehicle_unit_beta, not vehicle_available vehicle_unit_beta.
+
+Step19: attach_task_profile origin_availability_alpha route_task_profile_alpha
+Pre: candidate_created origin_availability_alpha (true), vehicle_allocated origin_availability_alpha (true), route_task_profile_available route_task_profile_alpha (true). Effect: candidate_task_profile_linked origin_availability_alpha route_task_profile_alpha, not route_task_profile_available route_task_profile_alpha.
+
+Step20: confirm_candidate_preparedness origin_availability_alpha route_task_profile_alpha
+Pre: candidate_created origin_availability_alpha (true), vehicle_allocated origin_availability_alpha (true), candidate_task_profile_linked origin_availability_alpha route_task_profile_alpha (true), not candidate_prepared origin_availability_alpha (true). Effect: candidate_prepared origin_availability_alpha true.
+
+Step21: assign_operator_resource origin_availability_alpha driver_operator_alpha
+Pre: candidate_prepared origin_availability_alpha (true), operator_available driver_operator_alpha (true). Effect: candidate_operator_linked origin_availability_alpha driver_operator_alpha, not operator_available driver_operator_alpha.
+
+Step22: activate_origin_node origin_availability_alpha origin_node_alpha route_task_profile_alpha
+Pre: candidate_prepared origin_availability_alpha (true), candidate_task_profile_linked origin_availability_alpha route_task_profile_alpha (true), origin_availability_node_linked origin_availability_alpha origin_node_alpha (true from init), not origin_node_ready origin_node_alpha (true), not origin_node_occupied origin_node_alpha (true). Effect: origin_node_ready origin_node_alpha.
+
+Step23: lock_origin_availability origin_availability_alpha origin_node_alpha driver_operator_alpha
+Pre: candidate_prepared origin_availability_alpha (true), candidate_operator_linked origin_availability_alpha driver_operator_alpha (true), origin_availability_node_linked origin_availability_alpha origin_node_alpha (true), origin_node_ready origin_node_alpha (true), not origin_availability_locked origin_availability_alpha (true). Effect: origin_availability_locked origin_availability_alpha true, origin_availability_confirmed origin_availability_alpha true.
+
+Now we need to prepare destination_availability_alpha.
+
+Step24: create_candidate destination_availability_alpha
+Pre: not candidate_created destination_availability_alpha, not dispatched destination_availability_alpha (true). Effect: candidate_created destination_availability_alpha.
+
+Step25: allocate_vehicle_unit destination_availability_alpha vehicle_unit_gamma
+Pre: candidate_created destination_availability_alpha (true), not vehicle_allocated destination_availability_alpha (true), vehicle_available vehicle_unit_gamma (true). Effect: vehicle_allocated destination_availability_alpha, candidate_vehicle_linked destination_availability_alpha vehicle_unit_gamma, not vehicle_available vehicle_unit_gamma.
+
+Step26: attach_task_profile destination_availability_alpha route_task_profile_alpha
+Pre: candidate_created destination_availability_alpha (true), vehicle_allocated destination_availability_alpha (true), route_task_profile_available route_task_profile_alpha (true) ??? Wait route_task_profile is currently unavailable because we attached it to origin_availability_alpha at step19 and haven't detached yet. So we need to detach origin's task profile before we can attach to destination. Actually we need route_task_profile available for destination's attach. So we must detach origin's task profile first.
+
+Thus we need to insert a detach_task_profile for origin_availability_alpha after we have locked origin? But lock_origin_availability required candidate_prepared, which required candidate_task_profile_linked. After lock, we no longer need the task profile link for origin? lock_origin_availability does not require candidate_task_profile_linked after? Actually lock_origin_availability precondition includes candidate_prepared, candidate_operator_linked, origin_availability_node_linked, origin_node_ready, not origin_availability_locked. It does not require candidate_task_profile_linked. So we can detach origin's task profile after lock_origin_availability, before we need it for destination.
+
+Thus after step23 (lock_origin_availability), we can detach origin's task profile.
+
+Let's insert step23a: detach_task_profile origin_availability_alpha route_task_profile_alpha.
+
+Then route_task_profile becomes available again.
+
+Then we can attach for destination.
+
+Thus adjust.
+
+After step23, we do:
+
+Step23a: detach_task_profile origin_availability_alpha route_task_profile_alpha
+Pre: candidate_task_profile_linked origin_availability_alpha route_task_profile_alpha (true). Effect: route_task_profile_available route_task_profile_alpha, not candidate_task_profile_linked origin_availability_alpha route_task_profile_alpha.
+
+Now route_task_profile available.
+
+Now step24: create_candidate destination_availability_alpha (as before)
+Step25: allocate_vehicle_unit destination_availability_alpha vehicle_unit_gamma
+Step26: attach_task_profile destination_availability_alpha route_task_profile_alpha
+Now route_task_profile becomes unavailable again.
+
+Proceed.
+
+Step27: confirm_candidate_preparedness destination_availability_alpha route_task_profile_alpha
+Pre: candidate_created destination_availability_alpha (true), vehicle_allocated destination_availability_alpha (true), candidate_task_profile_linked destination_availability_alpha route_task_profile_alpha (true), not candidate_prepared destination_availability_alpha (true). Effect: candidate_prepared destination_availability_alpha true.
+
+Step28: assign_operator_resource destination_availability_alpha driver_operator_alpha
+Pre: candidate_prepared destination_availability_alpha (true), operator_available driver_operator_alpha (true) (we released after origin? we haven't released operator from origin yet). Actually we assigned operator to origin_availability at step21, and haven't released. So operator is not available. We need to release operator from origin before assigning to destination.
+
+Thus we need to release operator from origin_availability after we no longer need it (after lock_origin_availability maybe). lock_origin_availability does not require operator after? It does not require candidate_operator_linked after? It only required it as precondition. After lock, we can release operator.
+
+Thus after step23 (lock_origin_availability) we can release operator from origin_availability.
+
+Thus insert step23b: release_operator_resource origin_availability_alpha driver_operator_alpha.
+
+Then operator becomes available.
+
+Thus after step23b, operator available.
+
+Now we can assign operator to destination.
+
+Thus steps:
+
+After step23 (lock_origin_availability), do:
+
+Step23a: detach_task_profile origin_availability_alpha route_task_profile_alpha
+Step23b: release_operator_resource origin_availability_alpha driver_operator_alpha
+
+Now operator available.
+
+Now continue with destination.
+
+Step24: create_candidate destination_availability_alpha
+Step25: allocate_vehicle_unit destination_availability_alpha vehicle_unit_gamma
+Step26: attach_task_profile destination_availability_alpha route_task_profile_alpha
+Step27: confirm_candidate_preparedness destination_availability_alpha route_task_profile_alpha
+Step28: assign_operator_resource destination_availability_alpha driver_operator_alpha
+Now operator not available.
+
+Step29: activate_destination_node destination_availability_alpha destination_node_alpha route_task_profile_alpha
+Pre: candidate_prepared destination_availability_alpha (true), candidate_task_profile_linked destination_availability_alpha route_task_profile_alpha (true), destination_availability_node_linked destination_availability_alpha destination_node_alpha (true), not destination_node_ready destination_node_alpha (true), not destination_node_occupied destination_node_alpha (true). Effect: destination_node_ready destination_node_alpha.
+
+Step30: lock_destination_availability destination_availability_alpha destination_node_alpha driver_operator_alpha
+Pre: candidate_prepared destination_availability_alpha (true), candidate_operator_linked destination_availability_alpha driver_operator_alpha (true), destination_availability_node_linked destination_availability_alpha destination_node_alpha (true), destination_node_ready destination_node_alpha (true), not destination_availability_locked destination_availability_alpha (true). Effect: destination_availability_locked destination_availability_alpha true, destination_availability_confirmed destination_availability_alpha true.
+
+Now we have origin locked/confirmed (from step23) and destination locked/confirmed (step30). Also we have origin_node_ready (step22) and destination_node_ready (step29). We have origin_availability_node_linked and destination_availability_node_linked from init.
+
+Now we need to assemble transport leg.
+
+Step31: assemble_transport_leg origin_availability_alpha destination_availability_alpha origin_node_alpha destination_node_alpha transport_leg_alpha
+Pre: origin_availability_locked origin_availability_alpha (true), destination_availability_locked destination_availability_alpha (true), origin_availability_node_linked origin_availability_alpha origin_node_alpha (true), destination_availability_node_linked destination_availability_alpha destination_node_alpha (true), origin_node_ready origin_node_alpha (true), destination_node_ready destination_node_alpha (true), origin_availability_confirmed origin_availability_alpha (true), destination_availability_confirmed destination_availability_alpha (true), transport_leg_available transport_leg_alpha (true). Effect: transport_leg_assembled transport_leg_alpha, transport_leg_origin_linked transport_leg_alpha origin_node_alpha, transport_leg_destination_linked transport_leg_alpha destination_node_alpha, not transport_leg_available transport_leg_alpha.
+
+Now we need to authorize transport leg loading.
+
+Step32: authorize_transport_leg_loading transport_leg_alpha origin_availability_alpha route_task_profile_alpha
+Pre: transport_leg_assembled transport_leg_alpha (true), origin_availability_locked origin_availability_alpha (true), candidate_task_profile_linked origin_availability_alpha route_task_profile_alpha ??? Wait we detached origin's task profile earlier (step23a). So we no longer have candidate_task_profile_linked for origin_availability. The authorize action requires candidate_task_profile_linked ?origin_availability ?route_task_profile. So we need origin_availability to have task profile linked. We detached it, so we need to re-attach it? Or we could have not detached it; we could keep it linked until after authorize. Let's reconsider.
+
+We need origin_availability to have candidate_task_profile_linked for authorize_transport_leg_loading. So we must keep the task profile linked for origin_availability until after authorize. Then we can detach after we are done with origin dispatch (maybe after execute_origin_dispatch). So we should not detach origin's task profile after lock; we should keep it until after authorize and mark_origin_availability_dispatch_ready, then detach after execute_origin_dispatch.
+
+Thus we need to adjust: keep origin's task profile linked.
+
+Thus we cannot detach origin's task profile before authorize. So we need to keep it.
+
+Thus we need to keep origin's task profile linked, and we need destination's task profile linked for lock_destination_availability (which requires candidate_prepared which requires candidate_task_profile_linked). So we need both origin and destination to have task profile linked simultaneously. But we only have one route_task_profile_alpha; we cannot have both linked at same time because attaching consumes it, making it unavailable. So we cannot have both linked concurrently.
+
+Thus we need to find a way to avoid needing task profile link for either origin or destination for those steps.
+
+Let's examine the requirements:
+
+- lock_origin_availability: requires candidate_prepared, which requires candidate_task_profile_linked. So origin must have task profile linked.
+
+- lock_destination_availability: also requires candidate_prepared, requiring candidate_task_profile_linked for destination.
+
+Thus both need task profile linked. Can't have both simultaneously.
+
+But maybe we can use a different route_task_profile? We only have one. So we need to serialize: prepare one, lock it, then detach its task profile, then prepare the other, lock it, etc. However lock_origin_availability after we detach origin's task profile would break because lock requires candidate_prepared which requires candidate_task_profile_linked. So we cannot detach before lock. So we need to lock origin while its task profile is linked, then after lock we can detach its task profile (since lock no longer needs it). Then we can attach task profile to destination, prepare, lock destination, etc.
+
+Thus we need to keep origin's task profile linked until after lock_origin_availability, then detach.
+
+Similarly, for destination we need its task profile linked until after lock_destination_availability, then detach.
+
+Thus we need to have only one task profile linked at a time.
+
+Thus we can:
+
+- Prepare origin: create, allocate vehicle, attach task profile, confirm prepared, assign operator, activate origin node, lock origin (still with task profile linked). After lock, detach origin's task profile.
+
+- Then prepare destination: create, allocate vehicle, attach task profile, confirm prepared, assign operator, activate destination node, lock destination (still with task profile linked). After lock, detach destination's task profile.
+
+Thus we will have origin and destination both locked/confirmed, with no task profile linked to either (since we detached after lock). However we need task profile link for origin_availability for authorize_transport_leg_loading and mark_origin_availability_dispatch_ready? Let's check.
+
+authorize_transport_leg_loading requires candidate_task_profile_linked ?origin_availability ?route_task_profile. So after we detached origin's task profile, we would lose that link, making authorize impossible. So we need origin's task profile linked for authorize and mark_origin_availability_dispatch_ready.
+
+Thus we need origin's task profile linked for those steps. So we cannot detach origin's task profile before authorize and mark_origin_availability_dispatch_ready.
+
+Thus we need to keep origin's task profile linked at least until after mark_origin_availability_dispatch_ready (which also requires transport_leg_loading_authorized, which requires candidate_task_profile_linked for origin). So we need origin's task profile linked for authorize and mark_origin_availability_dispatch_ready.
+
+Thus we need to keep origin's task profile linked through those steps.
+
+Thus we cannot detach origin's task profile before we finish origin dispatch steps (including allocate dispatch slot and execute). However we could detach after execute_origin_dispatch (which does not require task profile). So we can keep origin's task profile linked throughout origin dispatch process.
+
+Thus we need to keep origin's task profile linked while we also need destination's task profile linked for lock_destination_availability. Conflict.
+
+Thus we need to find a way to avoid requiring task profile link for destination lock. Let's examine lock_destination_availability precondition: candidate_prepared ?destination_availability, candidate_operator_linked ?destination_availability ?operator_resource, destination_availability_node_linked ?destination_availability ?destination_node, destination_node_ready ?destination_node, not destination_availability_locked ?destination_availability.
+
+Candidate_prepared requires candidate_created, vehicle_allocated, candidate_task_profile_linked, not candidate_prepared. So yes, destination needs task profile linked for candidate_prepared.
+
+Thus we need destination's task profile linked to get it prepared.
+
+Thus we cannot have both origin and destination task profile linked simultaneously.
+
+Thus we need to find an alternative way to get destination_availability_locked without needing candidate_prepared? Maybe we can use lock_destination_availability without needing candidate_prepared? No, it requires candidate_prepared.
+
+Is there another way to get destination_availability_locked and confirmed without needing candidate_prepared? Let's see other actions: there is lock_destination_availability only. There's also activate_destination_node which requires candidate_prepared and candidate_task_profile_linked. So to get destination_node_ready we need candidate_prepared. So we need destination prepared.
+
+Thus we need destination to have task profile linked at least until after lock_destination_availability (which requires candidate_prepared). After lock, we might be able to detach its task profile? lock_destination_availability does not require candidate_task_profile_linked after? It only required candidate_prepared as precondition, which itself required candidate_task_profile_linked. So after lock, we could detach destination's task profile (since lock doesn't need it). However we still need origin's task profile linked for authorize and mark_origin_availability_dispatch_ready.
+
+Thus we need to have origin's task profile linked and destination's task profile linked at the same time for the steps: origin needs it for lock (already done) and later for authorize/mark; destination needs it for lock only. So we could sequence: first prepare origin, lock origin (with its task profile linked). Then detach origin's task profile? But we need it later for authorize/mark, which happen after we have transport leg assembled and after destination locked. So we need origin's task profile linked after destination lock as well. So we need both origin and destination task profile linked at the same time for authorize and mark? Actually authorize requires origin's task profile linked; destination's task profile not needed. Mark origin dispatch ready requires origin's task profile linked? No, mark_origin_availability_dispatch_ready requires origin_availability_locked, origin_availability_confirmed, transport_leg_assembled, transport_leg_loading_authorized. No task profile needed. So after we have transport leg assembled and loading authorized, we don't need origin's task profile linked for mark. So we need origin's task profile linked only for authorize_transport_leg_loading (which needs origin's task profile linked). After that, we can detach origin's task profile.
+
+Thus we need origin's task profile linked for authorize step. Destination's task profile needed only for lock_destination_availability (to get it prepared and locked). So we can schedule:
+
+- Prepare origin: create, allocate vehicle, attach task profile, confirm prepared, assign operator, activate origin node, lock origin (still with task profile linked). Keep task profile linked.
+
+- Prepare destination: we need its task profile linked, but origin's is currently linked, making route_task_profile unavailable. So we need to detach origin's task profile temporarily to free it for destination, but then we would lose origin's task profile needed later for authorize. However we could re-attach origin's task profile after destination lock? But we would need to re-attach after destination lock, but before authorize. However after destination lock we still need origin's task profile linked for authorize. So we could:
+
+1. Prepare origin up to lock_origin_availability (with task profile linked).
+2. Detach origin's task profile (making it free).
+3. Prepare destination: create, allocate vehicle, attach task profile (now free), confirm prepared, assign operator, activate destination node, lock destination (with its task profile linked).
+4. Detach destination's task profile (freeing it).
+5. Re-attach origin's task profile (now free) to origin_availability (need to re-establish candidate_task_profile_linked). But we lost the link after detach; we can re-attach using attach_task_profile again (requires candidate_created, vehicle_allocated, route_task_profile_available). We have origin_availability still candidate_created, vehicle_allocated (still true), and route_task_profile now available after we detached destination's task profile. So we can re-attach.
+6. Then authorize_transport_leg_loading (requires origin's task profile linked).
+7. Then mark_origin_availability_dispatch_ready.
+8. Then allocate dispatch slot and execute origin dispatch.
+9. Then detach origin's task profile (optional) to free route_task_profile for goal.
+
+Thus we need to manage re-attaching.
+
+Let's outline steps with state tracking.
+
+We'll need to keep track of which vehicles are allocated.
+
+We have three vehicles: alpha, beta, gamma.
+
+We'll allocate:
+
+- shift_candidate_alpha: vehicle_unit_alpha
+- origin_availability_alpha: vehicle_unit_beta
+- destination_availability_alpha: vehicle_unit_gamma
+
+After we finish origin dispatch, we will release vehicle_unit_beta (via execute_origin_dispatch). After destination steps we may not need to dispatch destination, so its vehicle remains allocated; but we may not need to release it; goal does not require anything about destination vehicle. However we might want to release to keep state clean but not required.
+
+We also need to manage operator: we have single operator. We'll need to assign and release as needed.
+
+We'll need to manage compliance certificate: we used for shift_candidate_alpha, then released.
+
+Now we need to ensure we don't accidentally use compliance certificate for origin or destination (we won't).
+
+Now let's construct detailed plan.
+
+We'll start with shift_candidate_alpha steps as before (steps 1-15). After step15 we have:
+
+- shift_candidate_alpha dispatched.
+- vehicle_unit_alpha available.
+- dispatch_slot_alpha available.
+- operator_available.
+- compliance_certificate_available.
+- route_task_profile_available.
+- origin_availability_alpha: not yet created? Actually we haven't created origin_availability_alpha yet. So its candidate_created false.
+- destination_availability_alpha: not created.
+- origin_node_alpha: not ready? Not yet activated.
+- destination_node_alpha: not ready.
+- transport_leg_alpha: available? We haven't used it yet; it's still available (since we didn't assemble). Good.
+- loading containers: both available.
+- equipment resources: both available.
+- service windows: both available.
+- skill_certificate: available.
+- operational_constraint_alpha: not available (we used it and made it unavailable). operational_constraint_beta: still available (since we haven't used it). But we don't need them.
+
+Now we need to create origin_availability_alpha etc.
+
+Let's proceed.
+
+Step16: create_candidate shift_candidate_beta (as earlier). We'll do this early maybe after step15.
+
+But we need to ensure we don't interfere with other steps. It's fine.
+
+Now we start origin preparation.
+
+Step16: create_candidate origin_availability_alpha
+Pre: not candidate_created origin_availability_alpha, not dispatched origin_availability_alpha (true). Effect: candidate_created origin_availability_alpha.
+
+Step17: allocate_vehicle_unit origin_availability_alpha vehicle_unit_beta
+Pre: candidate_created origin_availability_alpha (true), not vehicle_allocated origin_availability_alpha (true), vehicle_available vehicle_unit_beta (true). Effect: vehicle_allocated origin_availability_alpha, candidate_vehicle_linked origin_availability_alpha vehicle_unit_beta, not vehicle_available vehicle_unit_beta.
+
+Step18: attach_task_profile origin_availability_alpha route_task_profile_alpha
+Pre: candidate_created origin_availability_alpha (true), vehicle_allocated origin_availability_alpha (true), route_task_profile_available route_task_profile_alpha (true). Effect: candidate_task_profile_linked origin_availability_alpha route_task_profile_alpha, not route_task_profile_available route_task_profile_alpha.
+
+Step19: confirm_candidate_preparedness origin_availability_alpha route_task_profile_alpha
+Pre: candidate_created origin_availability_alpha (true), vehicle_allocated origin_availability_alpha (true), candidate_task_profile_linked origin_availability_alpha route_task_profile_alpha (true), not candidate_prepared origin_availability_alpha (true). Effect: candidate_prepared origin_availability_alpha true.
+
+Step20: assign_operator_resource origin_availability_alpha driver_operator_alpha
+Pre: candidate_prepared origin_availability_alpha (true), operator_available driver_operator_alpha (true). Effect: candidate_operator_linked origin_availability_alpha driver_operator_alpha, not operator_available driver_operator_alpha.
+
+Step21: activate_origin_node origin_availability_alpha origin_node_alpha route_task_profile_alpha
+Pre: candidate_prepared origin_availability_alpha (true), candidate_task_profile_linked origin_availability_alpha route_task_profile_alpha (true), origin_availability_node_linked origin_availability_alpha origin_node_alpha (true), not origin_node_ready origin_node_alpha (true), not origin_node_occupied origin_node_alpha (true). Effect: origin_node_ready origin_node_alpha.
+
+Step22: lock_origin_availability origin_availability_alpha origin_node_alpha driver_operator_alpha
+Pre: candidate_prepared origin_availability_alpha (true), candidate_operator_linked origin_availability_alpha driver_operator_alpha (true), origin_availability_node_linked origin_availability_alpha origin_node_alpha (true), origin_node_ready origin_node_alpha (true), not origin_availability_locked origin_availability_alpha (true). Effect: origin_availability_locked origin_availability_alpha true, origin_availability_confirmed origin_availability_alpha true.
+
+Now we have origin locked/confirmed, with vehicle allocated, operator linked, task profile linked.
+
+Now we need to prepare destination. But we need to free route_task_profile for destination's attach. So we detach origin's task profile.
+
+Step23: detach_task_profile origin_availability_alpha route_task_profile_alpha
+Pre: candidate_task_profile_linked origin_availability_alpha route_task_profile_alpha (true). Effect: route_task_profile_available route_task_profile_alpha, not candidate_task_profile_linked origin_availability_alpha route_task_profile_alpha.
+
+Now origin still has candidate_prepared, vehicle_allocated, candidate_operator_linked, origin_node_ready, origin_availability_locked/confirmed, but no task profile linked.
+
+Now we prepare destination.
+
+Step24: create_candidate destination_availability_alpha
+Pre: not candidate_created destination_availability_alpha, not dispatched destination_availability_alpha (true). Effect: candidate_created destination_availability_alpha.
+
+Step25: allocate_vehicle_unit destination_availability_alpha vehicle_unit_gamma
+Pre: candidate_created destination_availability_alpha (true), not vehicle_allocated destination_availability_alpha (true), vehicle_available vehicle_unit_gamma (true). Effect: vehicle_allocated destination_availability_alpha, candidate_vehicle_linked destination_availability_alpha vehicle_unit_gamma, not vehicle_available vehicle_unit_gamma.
+
+Step26: attach_task_profile destination_availability_alpha route_task_profile_alpha
+Pre: candidate_created destination_availability_alpha (true), vehicle_allocated destination_availability_alpha (true), route_task_profile_available route_task_profile_alpha (true). Effect: candidate_task_profile_linked destination_availability_alpha route_task_profile_alpha, not route_task_profile_available route_task_profile_alpha.
+
+Step27: confirm_candidate_preparedness destination_availability_alpha route_task_profile_alpha
+Pre: candidate_created destination_availability_alpha (true), vehicle_allocated destination_availability_alpha (true), candidate_task_profile_linked destination_availability_alpha route_task_profile_alpha (true), not candidate_prepared destination_availability_alpha (true). Effect: candidate_prepared destination_availability_alpha true.
+
+Step28: assign_operator_resource destination_availability_alpha driver_operator_alpha
+Pre: candidate_prepared destination_availability_alpha (true), operator_available driver_operator_alpha (true) ??? Wait operator is currently allocated to origin_availability_alpha (we assigned at step20 and haven't released). So operator is not available. We need to release operator from origin before assigning to destination.
+
+Thus we need to release operator from origin_availability after we no longer need it for origin steps. We still need origin's operator for later? For authorize_transport_leg_loading and mark_origin_availability_dispatch_ready we do not need operator. So we can release operator from origin now.
+
+Thus after step22 (lock_origin_availability) we should release operator from origin.
+
+Let's insert step22a: release_operator_resource origin_availability_alpha driver_operator_alpha.
+
+Thus after step22, operator becomes available.
+
+Thus we adjust:
+
+After step22 (lock_origin_availability), do:
+
+Step22a: release_operator_resource origin_availability_alpha driver_operator_alpha
+Pre: candidate_operator_linked origin_availability_alpha driver_operator_alpha (true). Effect: operator_available driver_operator_alpha, not candidate_operator_linked origin_availability_alpha driver_operator_alpha.
+
+Now operator free.
+
+Now we can continue with destination steps.
+
+Thus after step22a, we have operator free.
+
+Now proceed with destination steps as above.
+
+Thus step24: create_candidate destination_availability_alpha
+step25: allocate_vehicle_unit destination_availability_alpha vehicle_unit_gamma
+step26: attach_task_profile destination_availability_alpha route_task_profile_alpha
+step27: confirm_candidate_preparedness destination_availability_alpha route_task_profile_alpha
+step28: assign_operator_resource destination_availability_alpha driver_operator_alpha
+Pre: candidate_prepared destination_availability_alpha (true), operator_available driver_operator_alpha (true). Effect: candidate_operator_linked destination_availability_alpha driver_operator_alpha, not operator_available driver_operator_alpha.
+
+Step29: activate_destination_node destination_availability_alpha destination_node_alpha route_task_profile_alpha
+Pre: candidate_prepared destination_availability_alpha (true), candidate_task_profile_linked destination_availability_alpha route_task_profile_alpha (true), destination_availability_node_linked destination_availability_alpha destination_node_alpha (true), not destination_node_ready destination_node_alpha (true), not destination_node_occupied destination_node_alpha (true). Effect: destination_node_ready destination_node_alpha.
+
+Step30: lock_destination_availability destination_availability_alpha destination_node_alpha driver_operator_alpha
+Pre: candidate_prepared destination_availability_alpha (true), candidate_operator_linked destination_availability_alpha driver_operator_alpha (true), destination_availability_node_linked destination_availability_alpha destination_node_alpha (true), destination_node_ready destination_node_alpha (true), not destination_availability_locked destination_availability_alpha (true). Effect: destination_availability_locked destination_availability_alpha true, destination_availability_confirmed destination_availability_alpha true.
+
+Now we have destination locked/confirmed, vehicle allocated, operator linked, task profile linked.
+
+Now we need to re-attach origin's task profile (since we detached earlier). Origin still has vehicle_allocated, candidate_operator_linked? We released operator from origin, so origin no longer has operator linked. But for authorize_transport_leg_loading we need origin_availability_locked and candidate_task_profile_linked ?origin_availability ?route_task_profile. It does not require operator. So we don't need operator for origin now. Good.
+
+Thus we need to re-attach task profile to origin_availability_alpha.
+
+But note origin_availability_alpha still has vehicle_allocated (vehicle_unit_beta) and candidate_prepared true, origin_node_ready true, origin_availability_locked/confirmed true. So we can attach task profile.
+
+Step31: attach_task_profile origin_availability_alpha route_task_profile_alpha
+Pre: candidate_created origin_availability_alpha (true), vehicle_allocated origin_availability_alpha (true), route_task_profile_available route_task_profile_alpha (true) (currently destination's task profile is linked, making it unavailable). Wait we have destination's task profile linked, so route_task_profile is unavailable. We need to detach destination's task profile first.
+
+Thus we need to detach destination's task profile before re-attaching to origin.
+
+Thus after step30, we have destination's task profile linked. We'll detach it.
+
+Step30a: detach_task_profile destination_availability_alpha route_task_profile_alpha
+Pre: candidate_task_profile_linked destination_availability_alpha route_task_profile_alpha (true). Effect: route_task_profile_available route_task_profile_alpha, not candidate_task_profile_linked destination_availability_alpha route_task_profile_alpha.
+
+Now route_task_profile free.
+
+Now we can re-attach to origin.
+
+Step31: attach_task_profile origin_availability_alpha route_task_profile_alpha
+Pre: candidate_created origin_availability_alpha (true), vehicle_allocated origin_availability_alpha (true), route_task_profile_available route_task_profile_alpha (true). Effect: candidate_task_profile_linked origin_availability_alpha route_task_profile_alpha, not route_task_profile_available route_task_profile_alpha.
+
+Now origin has task profile linked again.
+
+Now we can authorize transport leg loading.
+
+But we also need transport leg assembled. We have not yet assembled transport leg. We need to assemble transport leg using origin_availability_locked, destination_availability_locked, etc. We have those.
+
+Thus before authorize, we need to assemble transport leg.
+
+Step32: assemble_transport_leg origin_availability_alpha destination_availability_alpha origin_node_alpha destination_node_alpha transport_leg_alpha
+Pre: origin_availability_locked origin_availability_alpha (true), destination_availability_locked destination_availability_alpha (true), origin_availability_node_linked origin_availability_alpha origin_node_alpha (true), destination_availability_node_linked destination_availability_alpha destination_node_alpha (true), origin_node_ready origin_node_alpha (true), destination_node_ready destination_node_alpha (true), origin_availability_confirmed origin_availability_alpha (true), destination_

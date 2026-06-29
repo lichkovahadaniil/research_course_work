@@ -7,7 +7,7 @@ Minimal local pipeline for the generated `logistics` domain.
 - Domain: `logistics`
 - Tasks: `alpha`
 - Problems per task: `p1`-`p20`
-- Models: `glm-4.7-flash` (`z-ai/glm-4.7-flash`), `mistral-small` (`mistralai/mistral-small-2603`), `gemma-4` (`google/gemma-4-26b-a4b-it`, provider `DeepInfra` with `fp8`), `google/gemma-4-31b-it` (provider `wandb` with `bf16`), `inclusionai/ling-2.6-flash`, `deepseek/deepseek-v4-flash` (provider `atlas-cloud` with `fp8`), `gpt-oss-120b` (`openai/gpt-oss-120b`, provider `DeepInfra` with `bf16`), `nemotron-3-super` (`nvidia/nemotron-3-super-120b-a12b:free`), `qwen/qwen3-235b-a22b-thinking-2507` (provider `wandb` with `bf16`)
+- Models: `glm-4.7-flash` (`z-ai/glm-4.7-flash`), `mistral-small` (`mistralai/mistral-small-2603`), `gemma-4` (`google/gemma-4-26b-a4b-it`, provider `DeepInfra` with `fp8`), `google/gemma-4-31b-it` (provider `wandb` with `bf16`), `inclusionai/ling-2.6-flash`, `deepseek/deepseek-v4-flash` (provider `atlas-cloud` with `fp8`), `gpt-oss-120b` (`openai/gpt-oss-120b`, provider `DeepInfra` with `bf16`), `nemotron-3-super` (`nvidia/nemotron-3-super-120b-a12b:free`)
 - Variants per problem:
   - `canonical`
   - `disp_1`
@@ -47,7 +47,6 @@ python3 main.py models-run --models deepseek/deepseek-v4-flash --orders canonica
 python3 main.py models-run --models google/gemma-4-31b-it --orders canonical --problems alpha p1 --runs 1
 python3 main.py models-run --models gpt-oss-120b --orders canonical --problems alpha p1 --runs 1
 python3 main.py models-run --models nemotron-3-super --orders canonical --problems alpha p1 --runs 1
-python3 main.py models-run --models qwen/qwen3-235b-a22b-thinking-2507 --orders canonical --problems alpha p1 --runs 1
 python3 main.py models-run --models mistral-small --orders canonical --problems alpha p1 p5 p20 --runs 4 --force
 ```
 

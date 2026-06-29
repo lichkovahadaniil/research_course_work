@@ -1,0 +1,786 @@
+We need to produce a plan achieving goal from given init.
+
+Goal items:
+
+- (candidate_prepared destination_availability_alpha)
+- (candidate_prepared origin_availability_alpha)
+- (candidate_task_profile_linked origin_availability_alpha route_task_profile_alpha)
+- (candidate_vehicle_linked destination_availability_alpha vehicle_unit_beta)
+- (destination_availability_confirmed destination_availability_alpha)
+- (destination_availability_locked destination_availability_alpha)
+- (destination_node_occupied destination_node_alpha)
+- (destination_node_ready destination_node_alpha)
+- (dispatch_slot_available dispatch_slot_alpha) // currently? init has dispatch_allocated shift_candidate_alpha, not said about dispatch_slot_available. There is no dispatch_slot_available in init; we have dispatch_allocated shift_candidate_alpha. So slot likely not available (since allocated). Goal wants dispatch_slot_available, so need to free it (release). Means we need to dispatch something else? Actually dispatch_slot is linked to shift_candidate_alpha (candidate_dispatch_slot_linked shift_candidate_alpha dispatch_slot_alpha). To make it available we need to execute dispatch? The action execute_schedule_dispatch will make dispatch_slot_available again after dispatched. That action requires (dispatch_allocated ?candidate) and (candidate_vehicle_linked ?candidate ?vehicle_unit) and (candidate_dispatch_slot_linked ?candidate ?dispatch_slot) and (not (dispatched ?candidate)). Then effect: (dispatched ?candidate) (vehicle_available ?vehicle_unit) (dispatch_slot_available ?dispatch_slot). So we can dispatch shift_candidate_alpha (which currently is already dispatched? Actually init has dispatch_allocated shift_candidate_alpha but not dispatched. Also init has vehicle_allocated shift_candidate_alpha and candidate_vehicle_linked shift_candidate_alpha vehicle_unit_gamma. So shift_candidate_alpha is allocated but not dispatched. Goal also wants (dispatched shift_candidate_alpha). So we can execute execute_schedule_dispatch on shift_candidate_alpha, which will make dispatch_slot_available and dispatched true, and vehicle_available vehicle_unit_gamma. However goal also wants (vehicle_available vehicle_unit_gamma) (yes) and (dispatch_slot_available dispatch_slot_alpha) (yes). Also goal wants (candidate_vehicle_linked destination_availability_alpha vehicle_unit_beta). So we need to allocate vehicle_unit_beta to destination_availability_alpha. Currently origin_availability_alpha has vehicle allocated and linked to vehicle_unit_alpha. shift_candidate_alpha has vehicle allocated and linked to vehicle_unit_gamma. Destination_availability_alpha has no vehicle allocation yet.
+
+Goal also wants (candidate_prepared destination_availability_alpha) and (candidate_prepared origin_availability_alpha). Origin_availability_alpha currently: init shows candidate_created origin_availability_alpha, candidate_vehicle_linked origin_availability_alpha vehicle_unit_alpha, vehicle_allocated origin_availability_alpha, but not candidate_prepared. So we need to prepare origin_availability_alpha (maybe via confirm_candidate_preparedness after attaching task profile). Destination_availability_alpha currently: candidate_created destination_availability_alpha, candidate_destination_availability_linked shift_candidate_alpha and shift_candidate_beta, but no vehicle_allocated, not prepared.
+
+Goal also wants (candidate_task_profile_linked origin_availability_alpha route_task_profile_alpha). So need to attach route_task_profile_alpha to origin_availability_alpha.
+
+Goal also wants destination_availability_confirmed and locked, destination_node_occupied and ready. Also origin_availability_confirmed and locked, origin_node_occupied and ready.
+
+Also transport_leg_assembled, transport_leg_destination_linked to destination_node_alpha, transport_leg_origin_linked to origin_node_alpha. Already transport_leg_alpha is available and candidate_transport_leg_linked shift_candidate_alpha and shift_candidate_beta. Need to assemble leg with origin_availability_alpha and destination_availability_alpha.
+
+Goal also wants vehicle_allocated destination_availability_alpha.
+
+Goal also wants dispatch_slot_available dispatch_slot_alpha (we will get after dispatching shift_candidate_alpha). Already we have dispatch_allocated shift_candidate_alpha, candidate_dispatch_slot_linked shift_candidate_alpha dispatch_slot_alpha. After dispatch, slot available.
+
+Goal also wants (dispatched shift_candidate_alpha). We'll achieve by executing dispatch.
+
+Now need to see which actions are available.
+
+We have many actions. Let's reason stepwise.
+
+First, need to prepare origin_availability_alpha and destination_availability_alpha.
+
+Preparation requires candidate_created, vehicle_allocated, candidate_task_profile_linked (maybe? Actually confirm_candidate_preparedness precondition: candidate_created ?candidate, vehicle_allocated ?candidate, candidate_task_profile_linked ?candidate ?route_task_profile, not candidate_prepared ?candidate). So need to attach task profile first.
+
+Thus for origin_availability_alpha:
+
+- It already has vehicle_allocated (true) and candidate_vehicle_linked to vehicle_unit_alpha. Need candidate_task_profile_linked origin_availability_alpha route_task_profile_alpha. Action: attach_task_profile ?candidate - candidate_entity ?route_task_profile - route_task_profile. Precondition: candidate_created ?candidate, vehicle_allocated ?candidate, route_task_profile_available ?route_task_profile. We have candidate_created origin_availability_alpha true, vehicle_allocated origin_availability_alpha true, route_task_profile_available route_task_profile_alpha true. So we can do attach_task_profile origin_availability_alpha route_task_profile_alpha.
+
+After that, we can call confirm_candidate_preparedness origin_availability_alpha route_task_profile_alpha to set candidate_prepared.
+
+Now for destination_availability_alpha: It currently has no vehicle_allocated. Need to allocate a vehicle (vehicle_unit_beta) to it via allocate_vehicle_unit action. Precondition: candidate_created ?candidate, not vehicle_allocated ?candidate, vehicle_available ?vehicle_unit. We have candidate_created destination_availability_alpha true, vehicle_allocated? Not yet (init does not have). vehicle_available vehicle_unit_beta true (init). So we can allocate_vehicle_unit destination_availability_alpha vehicle_unit_beta.
+
+After that, need to attach_task_profile destination_availability_alpha route_task_profile_alpha? Goal does not require task profile linked to destination_availability_alpha, but for preparation we need candidate_task_profile_linked. confirm_candidate_preparedness requires candidate_task_profile_linked ?candidate ?route_task_profile. So we need to attach task profile to destination_availability_alpha as well, unless there is another way to prepare? The prepare action requires task profile link. So we must attach_task_profile destination_availability_alpha route_task_profile_alpha. However goal does not require that link; but we can still attach and maybe later detach? Not needed. We'll attach.
+
+After attach_task_profile, we can confirm_candidate_preparedness destination_availability_alpha route_task_profile_alpha.
+
+Now we need to lock origin and destination availability, confirm etc.
+
+Locking origin_availability: action lock_origin_availability parameters: ?origin_availability - origin_candidate_availability ?origin_node - origin_node ?operator_resource - operator_resource. Precondition: candidate_prepared ?origin_availability, candidate_operator_linked ?origin_availability ?operator_resource, origin_availability_node_linked ?origin_availability ?origin_node, origin_node_ready ?origin_node, not origin_availability_locked ?origin_availability. Effect: origin_availability_locked and origin_availability_confirmed.
+
+Thus we need candidate_operator_linked origin_availability_alpha with an operator. We have operator_available driver_operator_alpha. Need to assign_operator_resource origin_availability_alpha driver_operator_alpha. Precondition: candidate_prepared ?candidate, operator_available ?operator_resource. After we prepare origin_availability_alpha, we can assign.
+
+Also need origin_availability_node_linked origin_availability_alpha origin_node_alpha (exists from init). Need origin_node_ready. Initially origin_node_ready? Not in init. We have origin_node_ready? Not present. We need to activate origin node via action activate_origin_node parameters: ?origin_availability - origin_candidate_availability ?origin_node - origin_node ?route_task_profile - route_task_profile. Precondition: candidate_prepared ?origin_availability, candidate_task_profile_linked ?origin_availability ?route_task_profile, origin_availability_node_linked ?origin_availability ?origin_node, not origin_node_ready ?origin_node, not origin_node_occupied ?origin_node. Effect: origin_node_ready.
+
+Thus after we have candidate_prepared and task profile linked, we can activate origin node.
+
+Similarly for destination node: activate_destination_node.
+
+After activation, we can lock.
+
+Locking will also set origin_availability_confirmed (and locked). Good.
+
+Now we need to have origin_node_occupied and destination_node_occupied. Occupied occurs when loading payload onto node via load_origin_payload or load_destination_payload actions. Those actions require candidate_prepared ?origin_availability (or destination), origin_availability_node_linked, cargo_available, not origin_availability_locked (for load). Wait load_origin_payload precondition: candidate_prepared ?origin_availability, origin_availability_node_linked ?origin_availability ?origin_node, cargo_available ?payload_unit, not origin_availability_locked ?origin_availability. Effect: origin_node_occupied, origin_availability_locked, origin_payload_linked, not cargo_available.
+
+Thus to occupy node, we need to load payload before locking? Actually load_origin_payload locks the availability as part of effect. So we can load payload, which will set origin_availability_locked and origin_node_occupied, and also consume cargo (make it not available). After loading, we cannot lock again (since already locked). But lock_origin_availability also requires not origin_availability_locked (precondition). So we cannot lock after loading. However goal requires origin_availability_locked and origin_availability_confirmed (both true after load). Load action already sets origin_availability_locked and origin_availability_confirmed? Let's check load_origin_payload effect: (origin_node_occupied ?origin_node) (origin_availability_locked ?origin_availability) (origin_payload_linked ?origin_availability ?payload_unit) (not (cargo_available ?payload_unit)). It does NOT set origin_availability_confirmed. There is separate action lock_origin_availability that sets both locked and confirmed. So we need both locked and confirmed. Load gives locked but not confirmed. We need also confirmed. So we need to lock after loading? But lock_origin_availability precondition requires not origin_availability_locked (so cannot after load). So maybe we need to lock first, then load? But load requires not origin_availability_locked. So cannot load after lock. Hmm contradictory.
+
+Let's examine lock_origin_availability effect: (origin_availability_locked ?origin_availability) (origin_availability_confirmed ?origin_availability). So lock gives both locked and confirmed. Load gives locked but not confirmed. So perhaps we need to lock first (gives locked+confirmed) then load? But load precondition requires not origin_availability_locked, so cannot after lock. So maybe we need to load first (gives locked) then we need to confirm via some other action? There's no explicit confirm action besides lock. However there is action mark_origin_availability_dispatch_ready which requires origin_availability_locked and origin_availability_confirmed. So we need both locked and confirmed. How to get confirmed without lock? There is no action that sets confirmed alone. Maybe we missed: lock_origin_availability sets both; load_origin_payload sets locked only. So to have both, we could load then somehow get confirmed via something else? Not present.
+
+Let's re-examine: maybe origin_availability_confirmed is set by lock_origin_availability only. So we need lock after load? But load sets locked, making lock precondition fail. However lock_origin_availability precondition includes not origin_availability_locked ?origin_availability. So cannot.
+
+Thus maybe we need to not use load_origin_payload for occupation; maybe we can occupy node via other means? Origin_node_occupied can be set only by load_origin_payload or load_destination_payload? Actually there is also origin_node_occupied set by load_origin_payload effect. There's no other action setting origin_node_occupied. So to get origin_node_occupied we must load payload.
+
+Thus we need origin_availability_locked and origin_availability_confirmed both true after loading? But load only gives locked. However maybe origin_availability_confirmed is also set by something else like origin_availability_confirmed predicate may be true initially? Not in init. Let's check init: we have origin_availability_node_linked, candidate_vehicle_linked, vehicle_allocated, etc. No origin_availability_confirmed. So we need to get it.
+
+Thus maybe we need to lock before load, and load does not require not origin_availability_locked? Wait load_origin_payload precondition includes (not (origin_availability_locked ?origin_availability)). Yes.
+
+Thus impossible to have both locked and occupied? Let's double-check other actions: There is action mark_origin_availability_dispatch_ready which requires origin_availability_locked and origin_availability_confirmed and transport_leg_assembled etc. So they expect both locked and confirmed to be true before dispatch ready. How can they become true? Perhaps there is an action that sets origin_availability_confirmed without locking? Not present. Maybe origin_availability_confirmed is set by lock_origin_availability, and load_origin_payload does not require not origin_availability_locked? Let's re-read load_origin_payload precondition: (and (candidate_prepared ?origin_availability) (origin_availability_node_linked ?origin_availability ?origin_node) (cargo_available ?payload_unit) (not (origin_availability_locked ?origin_availability))). Yes includes not locked.
+
+Thus after loading, origin_availability_locked becomes true, but origin_availability_confirmed remains false. So we cannot later get confirmed. So maybe we don't need origin_availability_confirmed for goal? Goal includes origin_availability_confirmed origin_availability_alpha. Yes.
+
+Thus we need a way to get origin_availability_confirmed after loading. Perhaps there is an action that sets origin_availability_confirmed given origin_availability_locked? Not present. Could be that origin_availability_confirmed is set by lock_origin_availability, and we need to lock after loading but before loading we need to unlock? There's no unlock action. However maybe we can load payload onto origin_availability without locking it (i.e., load_origin_payload does not lock? but effect says it does). Could be a mistake in interpretation; maybe origin_availability_locked is not same as locked? Actually effect sets origin_availability_locked, so after load it's locked. So lock action cannot be applied after.
+
+Thus maybe the intended sequence is: lock_origin_availability (sets locked+confirmed), then load_origin_payload (requires not locked) fails. So maybe they intend to load payload before locking, and then some other action sets origin_availability_confirmed (maybe mark_origin_availability_dispatch_ready sets confirmed? No). Let's inspect mark_origin_availability_dispatch_ready effect: only sets dispatch_ready ?origin_availability. No.
+
+Thus maybe origin_availability_confirmed is actually set by load_origin_payload but omitted in description? Could be a mistake. However we need to satisfy goal as given; we must produce a plan that the planner would consider valid. We need to see if there exists any action that can set origin_availability_confirmed without requiring not locked. Let's search through all actions for effect containing origin_availability_confirmed. I see lock_origin_availability effect includes origin_availability_confirmed. Also lock_destination_availability effect includes destination_availability_confirmed. No other.
+
+Thus to get origin_availability_confirmed we must call lock_origin_availability. But then we cannot load payload. However goal also requires origin_node_occupied, which only load_origin_payload gives. So we need both locked and occupied. Perhaps there is a way to occupy node without loading payload? Maybe origin_node_occupied can be set by something else like loading_container_leg_linked? Not.
+
+Thus maybe we can achieve origin_node_occupied via loading_container_leg_linked? No.
+
+Thus maybe we misinterpret: origin_node_occupied predicate may be set by loading_container_leg_linked? Not.
+
+Let's check if any action sets origin_node_occupied besides load_origin_payload. I see load_origin_payload effect includes origin_node_occupied. Also load_destination_payload effect includes destination_node_occupied. No other.
+
+Thus we must load payload to occupy node.
+
+Thus we need both locked and confirmed after loading. Since lock cannot be after load, maybe we can load payload, then some other action sets origin_availability_confirmed while keeping locked true. Is there any action that has effect origin_availability_confirmed with precondition origin_availability_locked? Not present.
+
+Maybe we can load payload, then execute some action that unlocks then locks again? But we need occupied to stay true; unlocking would require removing origin_availability_locked? There is no action to unset origin_availability_locked. However there is action release_operator_resource etc not relevant. There is no action to make origin_availability_unlocked.
+
+Thus maybe we can load payload, then the lock action's precondition not origin_availability_locked is false, but maybe lock_origin_availability also has an alternative precondition that does not require not locked? No.
+
+Thus seems contradictory. Let's double-check the exact text of lock_origin_availability: 
+
+(:action lock_origin_availability
+    :parameters (?origin_availability - origin_candidate_availability ?origin_node - origin_node ?operator_resource - operator_resource)
+    :precondition
+      (and
+        (candidate_prepared ?origin_availability)
+        (candidate_operator_linked ?origin_availability ?operator_resource)
+        (origin_availability_node_linked ?origin_availability ?origin_node)
+        (origin_node_ready ?origin_node)
+        (not
+          (origin_availability_locked ?origin_availability)
+        )
+      )
+    :effect
+      (and
+        (origin_availability_locked ?origin_availability)
+        (origin_availability_confirmed ?origin_availability)
+      )
+)
+
+Thus indeed requires not locked.
+
+Thus maybe we can achieve origin_availability_confirmed via some other action not shown? Could be that origin_availability_confirmed is set by candidate_prepared? No.
+
+Let's examine if there is any action that sets origin_availability_confirmed as part of effect but not requiring not locked. I didn't see any.
+
+Thus maybe the goal expects origin_availability_confirmed to be true via lock_origin_availability, and origin_node_occupied true via some other action that does not require not origin_availability_locked. Let's see if any action sets origin_node_occupied without requiring not origin_availability_locked. load_origin_payload requires not origin_availability_locked. So can't after lock.
+
+Thus maybe we can occupy node via loading_container_leg_linked? No.
+
+Thus maybe we can occupy destination node similarly contradictory.
+
+Let's check load_destination_payload: same structure.
+
+Thus seems impossible to have both locked and occupied. But maybe the goal does not require both locked and occupied simultaneously? Actually goal includes both origin_availability_locked and origin_node_occupied, and origin_availability_confirmed. So yes both.
+
+Maybe there is a way to load payload after locking via a different action that doesn't check not locked. Let's search for action load_origin_payload again: maybe there is a variant load_origin_payload_without_lock? Not.
+
+Thus maybe we misinterpret: origin_availability_locked predicate might be separate from being locked for loading; maybe load_origin_payload does not actually set origin_availability_locked but something else? Let's re-read effect: (origin_node_occupied ?origin_node) (origin_availability_locked ?origin_availability) (origin_payload_linked ?origin_availability ?payload_unit) (not (cargo_available ?payload_unit)). So yes sets locked.
+
+Thus contradictory.
+
+Maybe we can load payload onto origin_availability via load_origin_payload, then later we can execute some action that sets origin_availability_confirmed while origin_availability_locked remains true (maybe lock_origin_availability's precondition not origin_availability_locked is false, but maybe there is a variant lock_origin_availability that does not have that precondition? No.
+
+Let's see if there is any action that has effect origin_availability_confirmed and does not have precondition not origin_availability_locked. I didn't see.
+
+Thus perhaps we need to load payload onto origin_availability via load_origin_payload, then we can execute some action that sets origin_availability_confirmed without needing lock, maybe confirm_operator_alignment? No.
+
+Let's search through all actions for origin_availability_confirmed in effect: only lock_origin_availability.
+
+Thus unsolvable? But likely the problem is solvable; maybe we missed that origin_availability_confirmed can be set by mark_origin_availability_dispatch_ready? Let's re-check that action: 
+
+(:action mark_origin_availability_dispatch_ready
+    :parameters (?origin_availability - origin_candidate_availability ?transport_leg - transport_leg)
+    :precondition
+      (and
+        (origin_availability_locked ?origin_availability)
+        (origin_availability_confirmed ?origin_availability)
+        (transport_leg_assembled ?transport_leg)
+        (transport_leg_loading_authorized ?transport_leg)
+        (not
+          (dispatch_ready ?origin_availability)
+        )
+      )
+    :effect (dispatch_ready ?origin_availability)
+)
+
+Thus requires both locked and confirmed.
+
+Thus to have dispatch_ready we need both.
+
+Thus maybe the intended flow is: lock_origin_availability (sets locked+confirmed), then load_origin_payload (requires not locked) cannot. So maybe they intend to load payload onto the transport leg, not onto the origin availability? Wait origin_node_occupied may be set by loading_container_leg_linked? Actually loading_container_leg_linked links container to leg, not node.
+
+But origin_node_occupied might be set when loading container onto leg? Not.
+
+Let's examine action load_container_onto_leg: effect sets loading_container_loaded and loading_container_leg_linked. No node occupation.
+
+Thus maybe origin_node_occupied is set when loading container onto leg? Not.
+
+Thus maybe we misinterpret: origin_node_occupied indicates that the origin node has a loading container present? Not.
+
+Given the contradictions, maybe the goal expects origin_node_occupied and destination_node_occupied to be true via loading_container_leg_linked? Let's see if any action sets origin_node_occupied via loading_container? No.
+
+Thus maybe we need to load payload onto origin_availability, which sets origin_node_occupied and origin_availability_locked, and then we can still get origin_availability_confirmed via some other action that does not require not origin_availability_locked. Let's search for any action that has effect origin_availability_confirmed and does not have not origin_availability_locked in precondition. Could be that some action's precondition includes origin_availability_locked but not not, and effect adds origin_availability_confirmed. Let's scan quickly mental: I recall action confirm_operator_alignment etc none.
+
+What about action verify_loading_profile_nominal? No.
+
+Action establish_clearance_* none.
+
+Action finalize_candidate_direct none.
+
+Action attach_service_window none.
+
+Action validate_route_sequence none.
+
+Action apply_operational_constraint none.
+
+Action confirm_operator_alignment none.
+
+Action verify_compliance_certificate none.
+
+Action finalize_candidate_after_compliance_validation none.
+
+Action mark_origin_availability_dispatch_ready none.
+
+Action mark_destination_availability_dispatch_ready none.
+
+Action allocate_dispatch_slot_for_candidate none.
+
+Action execute_origin_dispatch none.
+
+Action execute_destination_dispatch none.
+
+Thus only lock actions set _confirmed.
+
+Thus unsolvable unless we can load payload after lock via some other action that does not require not origin_availability_locked. Could there be an action load_origin_payload that does not have not origin_availability_locked? Let's re-read the snippet: maybe I mis-copied; let's look again at load_origin_payload definition:
+
+(:action load_origin_payload
+    :parameters (?origin_availability - origin_candidate_availability ?origin_node - origin_node ?route_task_profile - route_task_profile ?payload_unit - cargo_payload)
+    :precondition
+      (and
+        (candidate_prepared ?origin_availability)
+        (candidate_task_profile_linked ?origin_availability ?route_task_profile)
+        (origin_availability_node_linked ?origin_availability ?origin_node)
+        (origin_node_occupied ?origin_node)
+        (origin_payload_linked ?origin_availability ?payload_unit)
+        (not
+          (origin_availability_confirmed ?origin_availability)
+        )
+      )
+
+Wait I think I mis-copied earlier. Let's re-open the actual text from the domain:
+
+```
+(:action load_origin_payload
+    :parameters (?origin_availability - origin_candidate_availability ?origin_node - origin_node ?route_task_profile - route_task_profile ?payload_unit - cargo_payload)
+    :precondition
+      (and
+        (candidate_prepared ?origin_availability)
+        (candidate_task_profile_linked ?origin_availability ?route_task_profile)
+        (origin_availability_node_linked ?origin_availability ?origin_node)
+        (origin_node_occupied ?origin_node)
+        (origin_payload_linked ?origin_availability ?payload_unit)
+        (not
+          (origin_availability_confirmed ?origin_availability)
+        )
+      )
+    :effect
+      (and
+        (origin_node_ready ?origin_node)
+        (origin_availability_confirmed ?origin_availability)
+        (cargo_available ?payload_unit)
+        (not
+          (origin_payload_linked ?origin_availability ?payload_unit)
+        )
+      )
+  )
+```
+
+Ah! I had it wrong. Indeed load_origin_payload's effect is opposite: it sets origin_node_ready (not occupied) and origin_availability_confirmed, and makes cargo available again (unloads). So load_origin_payload is actually unloading? Let's check: precondition includes origin_node_occupied and origin_payload_linked, effect sets origin_node_ready and origin_availability_confirmed and cargo_available. So load_origin_payload is actually unloading payload from origin (making node ready). Similarly load_destination_payload is unloading at destination.
+
+Thus loading payload onto origin (making node occupied and cargo not available) is done by the opposite action? There is no explicit "load" action; maybe loading is implicit via assemble_*_loaded_leg actions? Those set origin_leg_loaded etc. Indeed there are actions assemble_origin_loaded_leg, assemble_destination_loaded_leg, assemble_fully_loaded_leg which set origin_leg_loaded or destination_leg_loaded etc. Those likely represent loading onto leg, not node.
+
+Thus to occupy origin node (have cargo there), we need to have origin_node_occupied true initially? Actually init does not have origin_node_occupied. To get origin_node_occupied we need to load cargo onto origin node; but there is no action that sets origin_node_occupied and removes cargo. Wait there is action load_origin_payload that does the reverse (unload). So maybe loading is done by the assemble_*_loaded_leg actions? They set origin_leg_loaded etc but not node occupation.
+
+Let's check assemble_origin_loaded_leg effect: includes origin_leg_loaded ?transport_leg. Not node occupation.
+
+Thus maybe origin_node_occupied is set by something else like when we allocate vehicle? No.
+
+Let's examine action load_destination_payload: similar to load_origin_payload but for destination: precondition includes destination_node_occupied and destination_payload_linked, effect sets destination_node_ready, destination_availability_confirmed, cargo_available. So again unload.
+
+Thus loading cargo onto node (making node occupied and cargo unavailable) is not represented as an action; maybe it's the initial state? Actually init has cargo_available, and no origin_node_occupied. To get origin_node_occupied we need to have cargo loaded onto origin, which would be the opposite of load_origin_payload (i.e., a "load" action). Since not present, maybe we can achieve origin_node_occupied via the assemble_origin_loaded_leg? No.
+
+Let's check if any action sets origin_node_occupied as effect: I didn't see any. Let's scan: load_origin_payload effect sets origin_node_ready (opposite). load_destination_payload sets destination_node_ready. assemble_*_loaded_leg effects set origin_leg_loaded or destination_leg_loaded. No node occupation.
+
+Thus origin_node_occupied may be set initially? Not in init. Goal wants origin_node_occupied true. So we need to make it true somehow. Perhaps there is a missing action: maybe loading cargo onto origin node is done by the action "load_origin_payload" but we misread effect; maybe effect actually sets origin_node_occupied (makes sense) and the precondition requires origin_node_ready. Let's double-check the original text again from the domain snippet we were given earlier (the large block). I need to re-examine the exact text for load_origin_payload and load_destination_payload from the provided domain.
+
+Scrolling back: I saw earlier:
+
+```
+(:action load_origin_payload
+    :parameters (?origin_availability - origin_candidate_availability ?origin_node - origin_node ?route_task_profile - route_task_profile ?payload_unit - cargo_payload)
+    :precondition
+      (and
+        (candidate_prepared ?origin_availability)
+        (origin_availability_node_linked ?origin_availability ?origin_node)
+        (cargo_available ?payload_unit)
+        (not
+          (origin_availability_locked ?origin_availability)
+        )
+      )
+    :effect
+      (and
+        (origin_node_occupied ?origin_node)
+        (origin_availability_locked ?origin_availability)
+        (origin_payload_linked ?origin_availability ?payload_unit)
+        (not
+          (cargo_available ?payload_unit)
+        )
+      )
+  )
+```
+
+That was earlier in my first copy. Then later I saw a different version. Which is correct? Let's check the original provided domain text again from the user message. I need to scroll up.
+
+The domain text after :predicates includes many actions. I will mentally re-extract the load_origin_payload segment from the provided text.
+
+Looking at the block:
+
+```
+  (:action load_origin_payload
+    :parameters (?origin_availability - origin_candidate_availability ?origin_node - origin_node ?route_task_profile - route_task_profile ?payload_unit - cargo_payload)
+    :precondition
+      (and
+        (candidate_prepared ?origin_availability)
+        (candidate_task_profile_linked ?origin_availability ?route_task_profile)
+        (origin_availability_node_linked ?origin_availability ?origin_node)
+        (origin_node_occupied ?origin_node)
+        (origin_payload_linked ?origin_availability ?payload_unit)
+        (not
+          (origin_availability_confirmed ?origin_availability)
+        )
+      )
+    :effect
+      (and
+        (origin_node_ready ?origin_node)
+        (origin_availability_confirmed ?origin_availability)
+        (cargo_available ?payload_unit)
+        (not
+          (origin_payload_linked ?origin_availability ?payload_unit)
+        )
+      )
+  )
+```
+
+That appears later in the text after many actions. Let's locate: after "(:action load_destination_payload" there is a similar block. I need to verify which is correct.
+
+I recall seeing two variants: earlier in the domain there was a load_origin_payload with different precondition/effect. Later there is another load_origin_payload with different precondition/effect. Actually there may be two actions: load_origin_payload and unload_origin_payload? Wait there is also action unload_origin_payload later. Let's check.
+
+Scrolling further:
+
+```
+  (:action unload_origin_payload
+    :parameters (?origin_availability - origin_candidate_availability ?origin_node - origin_node ?route_task_profile - route_task_profile ?payload_unit - cargo_payload)
+    :precondition
+      (and
+        (candidate_prepared ?origin_availability)
+        (candidate_task_profile_linked ?origin_availability ?route_task_profile)
+        (origin_availability_node_linked ?origin_availability ?origin_node)
+        (origin_node_occupied ?origin_node)
+        (origin_payload_linked ?origin_availability ?payload_unit)
+        (not
+          (origin_availability_confirmed ?origin_availability)
+        )
+      )
+    :effect
+      (and
+        (origin_node_ready ?origin_node)
+        (origin_availability_confirmed ?origin_availability)
+        (cargo_available ?payload_unit)
+        (not
+          (origin_payload_linked ?origin_availability ?payload_unit)
+        )
+      )
+  )
+```
+
+Thus load_origin_payload and unload_origin_payload appear identical? That seems odd. Actually maybe earlier load_origin_payload had different precondition/effect (the one I first copied). Let's locate the earlier load_origin_payload:
+
+Earlier in the domain after :action load_destination_payload? Let's search memory: I saw:
+
+```
+  (:action load_origin_payload
+    :parameters (?origin_availability - origin_candidate_availability ?origin_node - origin_node ?payload_unit - cargo_payload)
+    :precondition
+      (and
+        (candidate_prepared ?origin_availability)
+        (origin_availability_node_linked ?origin_availability ?origin_node)
+        (cargo_available ?payload_unit)
+        (not
+          (origin_availability_locked ?origin_availability)
+        )
+      )
+    :effect
+      (and
+        (origin_node_occupied ?origin_node)
+        (origin_availability_locked ?origin_availability)
+        (origin_payload_linked ?origin_availability ?payload_unit)
+        (not
+          (cargo_available ?payload_unit)
+        )
+      )
+  )
+```
+
+That version had only three parameters (origin_availability, origin_node, payload_unit) no route_task_profile, and effect set origin_node_occupied etc. That seems like a loading action. Later there is load_origin_payload with route_task_profile parameter and different precondition/effect (unloading). So there are two overloads? Actually they have same name but different parameters? In PDDL you cannot overload action names; they must be unique. So likely one of them is mis-typed; maybe the earlier is actually "load_origin_payload" and the later is "unload_origin_payload"? But we saw unload_origin_payload later with same signature as the later load_origin_payload. So maybe the earlier load_origin_payload is actually "load_origin_payload" (loading) and the later load_origin_payload is a mistake; but there is also unload_origin_payload with same signature as later load_origin_payload. So there are duplicate names; likely the earlier is load_origin_payload (loading) and the later is unload_origin_payload (but they mistakenly wrote load_origin_payload again). However the later block includes route_task_profile and matches the pattern of unload_origin_payload (requires origin_node_occupied etc). Actually the later load_origin_payload precondition includes origin_node_occupied and origin_payload_linked, effect sets origin_node_ready and cargo_available. That's unloading. So that should be unload_origin_payload. Indeed the later unload_origin_payload block is identical to that later load_origin_payload block. So there is duplication: they accidentally wrote load_origin_payload again instead of unload_origin_payload? But they also have explicit unload_origin_payload later with same signature. So there are two unload_origin_payload actions? That seems like a mistake.
+
+Nevertheless, we have both a loading variant (origin_node_occupied effect) and an unloading variant (origin_node_ready effect). The loading variant (first) does not have route_task_profile precondition, and its effect sets origin_node_occupied, origin_availability_locked, origin_payload_linked, and consumes cargo. Its precondition requires candidate_prepared, origin_availability_node_linked, cargo_available, not origin_availability_locked.
+
+Thus we can use that loading action to set origin_node_occupied and lock origin_availability (but not confirmed). Then we need origin_availability_confirmed; maybe we can get that via lock_origin_availability after loading? But lock_origin_availability requires not origin_availability_locked, which would be false after loading. So still problematic.
+
+But maybe there is an action that sets origin_availability_confirmed without requiring not origin_availability_locked, like maybe mark_origin_availability_dispatch_ready? No.
+
+Let's check if there is an action that sets origin_availability_confirmed as effect with precondition origin_availability_locked (instead of not). I didn't see.
+
+Thus maybe the loading variant does not set origin_availability_locked; maybe I misread effect: effect includes (origin_availability_locked ?origin_availability). Yes.
+
+Thus after loading, origin_availability_locked true, origin_availability_confirmed still false.
+
+Thus we need to get origin_availability_confirmed. Perhaps there is an action that sets origin_availability_confirmed given origin_availability_locked, like maybe "confirm_origin_availability" but not present.
+
+Alternatively maybe origin_availability_confirmed is set by the action "candidate_prepared"? No.
+
+Let's look at action "confirm_candidate_preparedness": effect only candidate_prepared.
+
+Thus not.
+
+Maybe we can get origin_availability_confirmed via the action "mark_origin_availability_dispatch_ready" which requires both locked and confirmed, but effect only sets dispatch_ready. So not.
+
+Thus perhaps the goal does not require origin_availability_confirmed to be true; maybe it's a mistake but we must satisfy it anyway.
+
+Let's see if there is any way to get origin_availability_confirmed true without locking: maybe via "candidate_origin_availability_linked"? No.
+
+Thus maybe we need to use the loading variant that does NOT set origin_availability_locked (maybe I misread). Let's re-examine the early load_origin_payload snippet again from the domain text I first copied:
+
+```
+  (:action load_origin_payload
+    :parameters (?origin_availability - origin_candidate_availability ?origin_node - origin_node ?payload_unit - cargo_payload)
+    :precondition
+      (and
+        (candidate_prepared ?origin_availability)
+        (origin_availability_node_linked ?origin_availability ?origin_node)
+        (cargo_available ?payload_unit)
+        (not
+          (origin_availability_locked ?origin_availability)
+        )
+      )
+    :effect
+      (and
+        (origin_node_occupied ?origin_node)
+        (origin_availability_locked ?origin_availability)
+        (origin_payload_linked ?origin_availability ?payload_unit)
+        (not
+          (cargo_available ?payload_unit)
+        )
+      )
+  )
+```
+
+That seems clear.
+
+Thus loading sets locked.
+
+Now maybe there is an action that sets origin_availability_confirmed given origin_availability_locked, maybe "confirm_origin_availability" not shown but could be implicit via something else? Let's search for "origin_availability_confirmed" in effects of any action: I recall seeing it in lock_origin_availability and lock_destination_availability. Also maybe in "mark_origin_availability_dispatch_ready"? No.
+
+Thus only lock actions.
+
+Thus to have origin_availability_confirmed true, we must have executed lock_origin_availability at some point. But lock_origin_availability requires not origin_availability_locked. So we must lock before loading, then load? But load requires not origin_availability_locked. So can't load after lock. So we cannot have both locked and occupied simultaneously.
+
+Thus maybe the goal does not require both locked and occupied; maybe origin_node_occupied can be true without origin_availability_locked? Let's see if there is any way to set origin_node_occupied without setting origin_availability_locked. The loading action sets both. So if we load, we get locked. If we want occupied but not locked, we need some other action that sets origin_node_occupied but not locked. Not present.
+
+Thus maybe we can achieve origin_node_occupied via loading_container_leg_linked? No.
+
+Thus maybe the goal expects origin_node_occupied false? But it's true.
+
+Let's check init: origin_node_occupied? Not present. So we need to make it true.
+
+Given the contradictions, maybe the intended interpretation is that loading cargo onto origin node does not lock the availability; the lock is separate. The loading action might set origin_node_occupied and origin_payload_linked, but not affect origin_availability_locked. However the effect we saw includes origin_availability_locked. Could be a mistake in the provided domain; but as a deterministic planner we must follow the given domain exactly. If the domain is contradictory, maybe there is still a solution using the unloading actions? Let's think: maybe we can achieve origin_node_occupied by not loading cargo but by having the transport leg assembled with origin_leg_loaded? Actually origin_node_occupied could be set when the transport leg is assembled with origin leg loaded? No.
+
+Let's examine the assemble_origin_loaded_leg effect: includes origin_leg_loaded ?transport_leg. Not node.
+
+Thus maybe origin_node_occupied is set when a loading container is linked to the leg and the leg is assembled? Not.
+
+Let's check if any action sets origin_node_occupied as effect besides load_origin_payload. I think not.
+
+Thus we must use load_origin_payload (loading) to get origin_node_occupied. That also sets origin_availability_locked. Then we need origin_availability_confirmed; maybe we can get that via some other action that does not require not origin_availability_locked, perhaps the action "mark_origin_availability_dispatch_ready" has precondition origin_availability_locked and origin_availability_confirmed, but we don't have confirmed yet. So no.
+
+Maybe we can get origin_availability_confirmed via the action "candidate_prepared"? No.
+
+Thus maybe we need to not load cargo onto origin; instead we can make origin_node_occupied true by having the cargo already there initially? But init has cargo_available, not at origin. However maybe we can consider that cargo_available at origin counts as origin_node_occupied? No.
+
+Alternatively maybe we can achieve origin_node_occupied by loading cargo onto the loading container and linking to leg etc, and the origin node is considered occupied when a loading container is present? Not.
+
+Given the confusion, maybe we should look at the goal also includes destination_node_occupied and destination_node_ready, destination_availability_confirmed and locked. Similarly contradictory.
+
+Thus perhaps the intended solution is to use the unloading actions (which set node ready and availability confirmed) and the goal expects node occupied? Wait goal includes destination_node_occupied and destination_node_ready both true. That's also contradictory: a node cannot be both occupied and ready simultaneously? Maybe they represent different aspects: occupied means cargo present, ready means ready for loading/unloading? Could both be true? Possibly if cargo present and ready for next step? Not sure.
+
+But the unloading action sets destination_node_ready and destination_availability_confirmed, and makes cargo available. So after unload, node ready, cargo available. Goal wants node occupied and ready and cargo? Actually goal does not mention cargo availability; it wants destination_node_occupied and destination_node_ready both true, and destination_availability_confirmed and locked. Also destination_availability_locked true. So after unload, we would have destination_node_ready true, destination_availability_confirmed true, cargo_available true, but destination_node_occupied false and destination_availability_locked? Actually unload_origin_payload effect does not set availability_locked; it sets origin_availability_confirmed but not locked? Wait unload_origin_payload effect: origin_node_ready, origin_availability_confirmed, cargo_available, not origin_payload_linked. No lock. So unload does not set locked. So to get locked we need lock action. So maybe we can load cargo onto node (makes occupied and locked), then unload (makes ready and confirmed and cargo available) resulting in node ready, cargo available, but node not occupied. Not good.
+
+Goal wants node occupied and ready simultaneously, and availability locked and confirmed. So maybe we need to load cargo (occupied+locked) and then somehow get confirmed without losing lock or occupied. Perhaps there is an action that sets confirmed given locked, without affecting node occupancy. Let's search for any action that has effect origin_availability_confirmed and precondition origin_availability_locked (maybe missing not). I didn't see.
+
+Let's scan again the domain for any effect containing origin_availability_confirmed. I'll mentally go through each action:
+
+- allocate_vehicle_unit: no.
+- execute_schedule_dispatch: no.
+- attach_task_profile: no.
+- confirm_candidate_preparedness: no.
+- load_destination_payload: effect includes destination_node_occupied etc, not origin.
+- unload_destination_payload: effect includes destination_node_ready, destination_availability_confirmed, cargo_available, not destination_payload_linked.
+- detach_task_profile: no.
+- load_origin_payload (first variant): effect includes origin_node_occupied, origin_availability_locked, origin_payload_linked, not cargo_available.
+- unload_origin_payload (second variant): effect includes origin_node_ready, origin_availability_confirmed, cargo_available, not origin_payload_linked.
+- assemble_transport_leg: no.
+- create_candidate: no.
+- assign_operator_resource: no.
+- release_operator_resource: no.
+- assign_skill_certificate: no.
+- release_skill_certificate: no.
+- assign_compliance_certificate: no.
+- release_compliance_certificate: no.
+- activate_origin_node: no.
+- lock_origin_availability: effect includes origin_availability_locked and origin_availability_confirmed.
+- activate_destination_node: no.
+- lock_destination_availability: effect includes destination_availability_locked and destination_availability_confirmed.
+- assemble_origin_loaded_leg: no.
+- assemble_destination_loaded_leg: no.
+- assemble_fully_loaded_leg: no.
+- authorize_transport_leg_loading: no.
+- load_container_onto_leg: no.
+- stage_schedule_candidate: no.
+- reserve_equipment_resource: no.
+- confirm_equipment_assignment: no.
+- verify_loading_profile_nominal: no.
+- verify_loading_profile_destination_flag: no.
+- establish_clearance_nominal: no.
+- establish_clearance_origin_loaded: no.
+- establish_clearance_destination_loaded: no.
+- establish_clearance_full_load: no.
+- finalize_candidate_direct: no.
+- attach_service_window: no.
+- validate_route_sequence: no.
+- finalize_candidate_after_sequence_validation: no.
+- apply_operational_constraint: no.
+- confirm_operator_alignment: no.
+- verify_compliance_certificate: no.
+- finalize_candidate_after_compliance_validation: no.
+- mark_origin_availability_dispatch_ready: no.
+- mark_destination_availability_dispatch_ready: no.
+- allocate_dispatch_slot_for_candidate: no.
+- execute_origin_dispatch: no.
+- execute_destination_dispatch: no.
+
+Thus origin_availability_confirmed only appears in lock_origin_availability and unload_origin_payload? Wait unload_origin_payload effect includes origin_availability_confirmed? Actually I see unload_origin_payload effect: (origin_node_ready ?origin_node) (origin_availability_confirmed ?origin_availability) (cargo_available ?payload_unit) (not (origin_payload_linked ?origin_availability ?payload_unit)). Yes! I missed that. So unload_origin_payload sets origin_availability_confirmed (and node ready, cargo available). Similarly unload_destination_payload sets destination_availability_confirmed.
+
+Thus we have two actions that set _confirmed: lock_* and unload_* . Good.
+
+Thus we can get origin_availability_confirmed via unload_origin_payload after loading? Let's see: load_origin_payload (loading) sets origin_node_occupied, origin_availability_locked, origin_payload_linked, not cargo_available. Then unload_origin_payload requires origin_node_occupied and origin_payload_linked and not origin_availability_confirmed? Let's check unload_origin_payload precondition: (candidate_prepared ?origin_availability) (candidate_task_profile_linked ?origin_availability ?route_task_profile) (origin_availability_node_linked ?origin_availability ?origin_node) (origin_node_occupied ?origin_node) (origin_payload_linked ?origin_availability ?payload_unit) (not (origin_availability_confirmed ?origin_availability)). Effect: origin_node_ready, origin_availability_confirmed, cargo_available, not origin_payload_linked.
+
+Thus we can load cargo (makes occupied+locked) then unload (requires occupied & payload linked, not confirmed) -> after unload we get node ready, cargo available, availability confirmed, but node not occupied. So we lose occupation.
+
+Goal wants node occupied and ready simultaneously, and availability locked and confirmed. Let's see if we can have both loaded and unloaded states simultaneously? Not possible.
+
+Maybe we can load cargo onto origin node (occupied+locked) and then also execute lock_origin_availability? But lock requires not origin_availability_locked, which fails.
+
+Alternative: maybe we can get origin_availability_confirmed via lock_origin_availability before loading, then load cargo (which requires not origin_availability_locked) fails. So no.
+
+Thus maybe we need to achieve origin_availability_confirmed via unload_origin_payload, and origin_node_occupied via some other action not affecting availability. Let's see if any action sets origin_node_occupied without affecting availability. I didn't see any. But maybe assemble_origin_loaded_leg sets origin_leg_loaded, not node.
+
+Thus maybe we can achieve origin_node_occupied via having a loading container at the origin node? Not.
+
+Let's examine if there is any predicate linking loading container to origin node? Not.
+
+Thus seems impossible.
+
+Let's re-check the goal: maybe origin_node_occupied is not required; maybe it's a mistake but we must satisfy it. Let's see if we can make origin_node_occupied true via loading_container_leg_linked? No.
+
+Let's check if any action sets origin_node_occupied as effect besides load_origin_payload (loading) and maybe load_destination_payload? No.
+
+Thus we must use load_origin_payload (loading) to get origin_node_occupied. That also sets origin_availability_locked. Then we need origin_availability_confirmed. Could we get origin_availability_confirmed via lock_origin_availability after loading? No due to precondition. But maybe we can use unload_origin_payload to get confirmed, but that would undo occupation. However maybe we can reload cargo after unload? Let's think: load (occupied+locked, cargo not available). unload (ready+confirmed, cargo available). Then we could load again? Load precondition requires candidate_prepared, origin_availability_node_linked, cargo_available, not origin_availability_locked. After unload, origin_availability_locked is false? Let's see: unload_origin_payload effect does NOT set origin_availability_locked; it only sets origin_availability_confirmed. So after unload, origin_availability_locked is false (since it was true before unload? Actually load set locked true; unload does not affect locked predicate, so locked remains true unless there is an action that removes it. No action removes origin_availability_locked. So after load, locked true. After unload, locked remains true (since no effect changes it). Wait unload_origin_payload effect does not mention origin_availability_locked, so it stays as it was. So after load, locked true. After unload, locked still true. Good! So we can load (sets locked true, occupied true, cargo not available, payload linked). Then unload (requires origin_node_occupied, origin_payload_linked, not origin_availability_confirmed). Effect: origin_node_ready, origin_availability_confirmed, cargo_available, not origin_payload_linked. Locked stays true (unchanged). So after unload, we have origin_node_ready, origin_availability_confirmed, origin_availability_locked still true, cargo available, payload not linked. So we have locked and confirmed true, node ready (not occupied). Goal wants node occupied AND ready. We have ready but not occupied. We need occupied also true. Could we load again? Load precondition requires cargo_available (we have after unload), origin_availability_node_linked, candidate_prepared, not origin_availability_locked. But origin_availability_locked is true (still). So load precondition fails due to not origin_availability_locked. So cannot load again while locked.
+
+Thus we cannot have both occupied and locked simultaneously after unload.
+
+What if we load, then do something else that clears origin_availability_locked? There's no action to unset locked. So once locked, stays locked.
+
+Thus to have origin_node_occupied and origin_availability_locked both true, we must load and not unload. Then we lack confirmed.
+
+Thus we need both occupied and confirmed, but locked may be optional? Goal includes origin_availability_locked true. So we need locked true as well. So we need occupied, locked, confirmed. Loading gives occupied+locked. Need confirmed. To get confirmed we need either lock_origin_availability (requires not locked) or unload_origin_payload (requires occupied & payload linked and not confirmed). Unload would give confirmed but also set node ready and cargo available, and remove payload link, but keep locked true. After unload, we lose occupied and payload link, but we could maybe reload cargo? But reload requires not origin_availability_locked (still true) so cannot.
+
+Thus we cannot have occupied and confirmed simultaneously with locked true.
+
+Thus maybe we can get confirmed via lock_origin_availability before loading, then load cargo while locked? Load requires not origin_availability_locked, fails. So not.
+
+Thus seems impossible to have origin_availability_confirmed true while origin_availability_locked true and origin_node_occupied true.
+
+Let's check if there is any action that sets origin_availability_confirmed without affecting locked or occupancy. Perhaps the action "confirm_candidate_preparedness" does not. No.
+
+Thus maybe the goal is actually satisfiable by having origin_availability_confirmed false? But goal includes it true.
+
+Let's double-check the goal: (origin_availability_confirmed origin_availability_alpha). Yes.
+
+Thus we need to find a way.
+
+Maybe we missed an action that sets origin_availability_confirmed via something like "candidate_prepared"?? Not.
+
+Let's look at the action "finalize_candidate_direct": effect includes dispatch_ready but not availability confirmed.
+
+Maybe there is an action "mark_origin_availability_dispatch_ready" that sets dispatch_ready but not confirmed.
+
+Thus maybe origin_availability_confirmed can be set by the action "candidate_prepared"? No.
+
+Let's search the domain text for "origin_availability_confirmed" again in case it appears in other effects I missed. I will scan the provided domain snippet again (I can approximate). I recall seeing "origin_availability_confirmed" in lock_origin_availability and also in "mark_origin_availability_dispatch_ready"? Actually mark_origin_availability_dispatch_ready precondition includes origin_availability_confirmed but effect does not. So not.
+
+Thus only lock and unload.
+
+Thus to have origin_availability_confirmed true, we must have executed either lock_origin_availability or unload_origin_payload at some point after which it stays true (unless some action unsets it). Is there any action that unsets origin_availability_confirmed? Let's check if any action has effect (not origin_availability_confirmed ...). I don't recall seeing such. Let's scan: maybe release_operator_resource? No. detach_task_profile? No. detach? No.
+
+Thus origin_availability_confirmed, once true, stays true.
+
+Thus we can achieve origin_availability_confirmed via unload_origin_payload (which also sets origin_node_ready and cargo_available). Then we need origin_node_occupied true as well. But unload makes origin_node_ready (not occupied). So we need also origin_node_occupied true. Could we have both origin_node_occupied and origin_node_ready true simultaneously? Possibly if some action sets origin_node_occupied without affecting ready? Let's see if any action sets origin_node_occupied without affecting origin_node_ready. The load_origin_payload (loading) sets origin_node_occupied and does not affect origin_node_ready (it doesn't mention it). So after load, origin_node_occupied true, origin_node_ready unchanged (maybe false). After unload, origin_node_ready true, origin_node_occupied false. So we cannot have both true at same time via these two actions because they affect opposite.
+
+But maybe we can have origin_node_occupied true via load_origin_payload, and origin_node_ready true via some other action that sets origin_node_ready without affecting occupancy. Is there an action that sets origin_node_ready? The unload_origin_payload sets origin_node_ready. Also maybe activate_origin_node sets origin_node_ready (precondition requires not origin_node_ready and not origin_node_occupied). Effect sets origin_node_ready. So activate_origin_node can set origin_node_ready while requiring origin_node_occupied false. So after load (occupied true, ready false), we cannot activate because precondition requires not origin_node_occupied. So can't.
+
+Thus we cannot have both occupied and ready true at same time given these actions.
+
+Thus goal seems impossible. Unless there is a different action that sets origin_node_occupied without affecting locked, and another that sets origin_node_ready without affecting occupied, and they can be combined. Let's see if any action sets origin_node_occupied besides load_origin_payload (loading). I think not.
+
+Any action sets origin_node_ready besides activate_origin_node and unload_origin_payload? activate_origin_node sets origin_node_ready (requires not occupied). unload_origin_payload sets origin_node_ready (requires occupied). So after load (occupied true, ready false), we cannot run activate (needs not occupied). We can run unload (sets ready true, occupied false). So we cannot have both.
+
+Thus goal impossible? But likely the problem is solvable; maybe we misinterpret the meaning of origin_node_occupied and origin_node_ready: they are not mutually exclusive; maybe a node can be both occupied (has cargo) and ready (prepared for loading/unloading). The actions might set them independently: load_origin_payload sets occupied but not ready; activate_origin_node sets ready but not occupied; they could both be true if we do load then activate? But activate requires not origin_node_occupied, so cannot after load. However maybe we can activate first (sets ready, requires not occupied), then load (sets occupied, requires not origin_availability_locked? but does not affect ready). Let's test: Start: origin_node_ready false, origin_node_occupied false.
+
+Step1: activate_origin_node: precondition candidate_prepared, task_profile_linked, origin_availability_node_linked, not origin_node_ready, not origin_node_occupied. After activation, origin_node_ready true, origin_node_occupied unchanged (false).
+
+Step2: load_origin_payload: precondition candidate_prepared, origin_availability_node_linked, cargo_available, not origin_availability_locked. It does NOT require origin_node_ready or origin_node_occupied. Effect: origin_node_occupied true, origin_availability_locked true, origin_payload_linked, not cargo_available. It does not affect origin_node_ready. So after load, origin_node_occupied true, origin_node_ready remains true (since not changed). Great! So we can have both occupied and ready true.
+
+Thus the earlier load_origin_payload I first copied (without route_task_profile) is the correct loading action. The later load_origin_payload with route_task_profile is actually unload_origin_payload (but misnamed). However we also have explicit unload_origin_payload later with same signature as the later load_origin_payload (with route_task_profile). So we have both loading and unloading actions: loading variant (no route_task_profile) and unloading variant (with route_task_profile). Good.
+
+Thus we can achieve origin_node_occupied and origin_node_ready both true by: activate_origin_node (sets ready), then load_origin_payload (sets occupied, locks availability, links payload, consumes cargo). This does not affect ready.
+
+Now we need origin_availability_confirmed true. After load, we have origin_availability_locked true, but not confirmed. We need to get confirmed. We can use unload_origin_payload? That would set confirmed but also set origin_node_ready (already true) and cargo_available, and unset origin_payload_linked, and set origin_node_ready (still true). However unload_origin_payload also requires origin_node_occupied and origin_payload_linked and not origin_availability_confirmed. After load, we have origin_node_occupied true, origin_payload_linked true, origin_availability_confirmed false (good). So we can run unload_origin_payload. Its effect: origin_node_ready (already true), origin_availability_confirmed becomes true, cargo_available becomes true, origin_payload_linked becomes false. It does NOT affect origin_availability_locked (stays true). It does NOT affect origin_node_occupied? Wait effect does not mention origin_node_occupied, so it remains unchanged (still true). Let's verify: unload_origin_payload effect list: (origin_node_ready ?origin_node) (origin_availability_confirmed ?origin_availability) (cargo_available ?payload_unit) (not (origin_payload_linked ?origin_availability ?payload_unit)). No mention of origin_node_occupied. So origin_node_occupied stays true. Great! So after unload, we have origin_node_occupied true, origin_node_ready true, origin_availability_locked true (from load), origin_availability_confirmed true (from unload), cargo_available true, origin_payload_linked false.
+
+Thus we achieve all origin goals: candidate_prepared (we need to have prepared before loading), candidate_task_profile_linked? Wait goal does not require candidate_task_profile_linked for origin? Actually goal includes (candidate_task_profile_linked origin_availability_alpha route_task_profile_alpha). Yes we need that. So we need to attach task profile to origin_availability_alpha before preparing? Actually prepare requires candidate_task_profile_linked. So we need to attach task profile first.
+
+Thus sequence for origin:
+
+1. attach_task_profile origin_availability_alpha route_task_profile_alpha (requires candidate_created, vehicle_allocated, route_task_profile_available). We have candidate_created true, vehicle_allocated true (init), route_task_profile_available true. So we can do this.
+
+2. confirm_candidate_preparedness origin_availability_alpha route_task_profile_alpha (requires candidate_prepared? Actually precondition: candidate_created, vehicle_allocated, candidate_task_profile_linked, not candidate_prepared). After attach, we have candidate_task_profile_linked true. So we can prepare.
+
+Now we have candidate_prepared true.
+
+3. activate_origin_node origin_availability_alpha origin_node_alpha route_task_profile_alpha (requires candidate_prepared, candidate_task_profile_linked, origin_availability_node_linked, not origin_node_ready, not origin_node_occupied). We have origin_availability_node_linked true, origin_node_ready false, origin_node_occupied false. So we can activate, setting origin_node_ready true.
+
+4. load_origin_payload origin_availability_alpha origin_node_alpha cargo_payload_alpha (loading variant) (requires candidate_prepared, origin_availability_node_linked, cargo_available, not origin_availability_locked). We have candidate_prepared true, origin_availability_node_linked true, cargo_available true, origin_availability_locked? Not yet, so false. So we can load. Effect: origin_node_occupied true, origin_availability_locked true, origin_payload_linked true, cargo_available false.
+
+5. unload_origin_payload origin_availability_alpha origin_node_alpha route_task_profile_alpha cargo_payload_alpha (requires candidate_prepared, candidate_task_profile_linked, origin_availability_node_linked, origin_node_occupied, origin_payload_linked, not origin_availability_confirmed). We have candidate_prepared true, candidate_task_profile_linked true, origin_availability_node_linked true, origin_node_occupied true, origin_payload_linked true, origin_availability_confirmed false. So we can unload. Effect: origin_node_ready true (already), origin_availability_confirmed true, cargo_available true, not origin_payload_linked.
+
+Now after step5, we have origin_node_occupied true (still), origin_node_ready true, origin_availability_locked true, origin_availability_confirmed true, cargo_available true. Good.
+
+Now we need destination_availability_alpha similar but also need vehicle allocated to destination_availability_alpha (vehicle_unit_beta). Also need destination_node_occupied and destination_node_ready, destination_availability_locked and confirmed.
+
+We can follow similar steps for destination.
+
+But note: destination_availability_alpha currently has no vehicle allocated. We'll need to allocate vehicle_unit_beta to it.
+
+Also we need cargo_available for loading; after origin steps, cargo_available is true again (since unload returned cargo). So we have cargo available.
+
+Now for destination:
+
+We need to prepare destination_availability_alpha: need candidate_created (true), vehicle_allocated (we will allocate), candidate_task_profile_linked (we need to attach task profile). However note: destination_availability_alpha is a destination_candidate_availability type, but attach_task_profile expects ?candidate - candidate_entity (which includes origin_candidate_availability and destination_candidate_availability? The type candidate_entity is a parent of origin_candidate_availability and destination_candidate_availability? In types, candidate_entity is a type; origin_candidate_availability and destination_candidate_availability are subtypes? Actually they are listed as separate types under candidate_entity? In the types line: candidate_entity - object; then origin_candidate_availability - candidate_entity; destination_candidate_availability - candidate_entity. So yes they are subtypes of candidate_entity. So attach_task_profile works.
+
+Thus we need to attach_task_profile destination_availability_alpha route_task_profile_alpha.
+
+But note: we already used route_task_profile_alpha for origin; after attach_task_profile, the route_task_profile becomes unavailable (since effect not route_task_profile_available). So we cannot attach same profile to both origin and destination unless we have another copy. We only have one route_task_profile_alpha object. So we cannot attach it to both. However goal requires candidate_task_profile_linked origin_availability_alpha route_task_profile_alpha. It does not require it for destination. So we can keep it attached to origin only. Destination does not need task profile linked. Good.
+
+Thus for destination we do not need to attach task profile. However confirm_candidate_preparedness for destination requires candidate_task_profile_linked ?candidate ?route_task_profile. So we need a task profile linked to destination as well to prepare it. But maybe we can prepare destination without task profile? The prepare action requires candidate_task_profile_linked. So we need to attach some task profile to destination. We could attach a different route_task_profile if we had another, but we only have one. Could we reuse the same after detaching from origin? We could detach after origin prepared? Let's see: origin needs task profile linked for preparing and for activation etc. After we prepared origin, we might detach the task profile (using detach_task_profile) to free it for destination. However some later steps may require origin to have task profile linked? Let's check: origin activation used candidate_task_profile_linked as precondition. After activation, do we still need it linked? Possibly not for later steps. The goal requires origin to have task profile linked (candidate_task_profile_linked origin_availability_alpha route_task_profile_alpha). So we must keep it linked for origin goal. Thus we cannot detach.
+
+Thus destination cannot get a task profile linked if we only have one and origin needs it kept. So maybe destination does not need to be prepared? Goal includes candidate_prepared destination_availability_alpha. So we need destination prepared. To prepare, we need candidate_task_profile_linked. So we need a task profile linked to destination as well. Thus we need two task profiles, but we only have one. However maybe we can use the same task profile for both if the action attach_task_profile does not consume it? Wait effect includes (not (route_task_profile_available ?route_task_profile)). So it consumes availability. So after attaching to origin, route_task_profile_alpha becomes unavailable. Cannot attach to destination.
+
+Thus maybe we can prepare destination without task profile via a different action? Let's see if there is any other way to get candidate_prepared without task profile. The confirm_candidate_preparedness action requires candidate_task_profile_linked. So no.
+
+Thus maybe we can prepare destination via some other route: maybe candidate_prepared can be set directly by some other action? Not in domain.
+
+Thus perhaps we can avoid preparing destination; maybe goal's candidate_prepared destination_availability_alpha can be achieved via inheritance? No.
+
+Thus maybe we need to use a different task profile for destination; but we only have one defined. However we could create a new candidate? Not.
+
+Thus maybe we can use the same task profile for both by attaching it to destination first, then later moving it to origin? But origin needs it linked at goal. So we need it linked to origin at end. Could we attach to destination, prepare destination, then detach and attach to origin? But origin also needs to be prepared, which requires task profile linked. So we could attach to origin first, prepare origin, then detach (making it available), then attach to destination, prepare destination, then detach and reattach to origin? But origin would lose preparation if we detach? Does detaching affect candidate_prepared? No, candidate_prepared is independent. So we could prepare origin while task profile linked, then detach, freeing profile, then attach to destination, prepare destination, then detach, then reattach to origin (but origin would lose preparation? Actually candidate_prepared stays true even if task profile detached? The predicate candidate_prepared is not dependent on task profile link. So we can detach after preparing and still keep candidate_prepared true. So we can prepare origin, detach, prepare destination, then reattach to origin to satisfy goal link. However we must ensure that after reattaching, origin still has candidate_prepared true (it does). Also we need origin_task_profile_linked for goal. So final state: origin has task profile linked, candidate_prepared true. Destination: candidate_prepared true, but after we detach task profile from destination, it will lose the link, making candidate_task_profile_linked false, but goal does not require that for destination. So we can detach after preparing destination, leaving destination prepared but not linked. That's fine.
+
+Thus plan:
+
+- Prepare origin: attach TP, prepare, activate node, load cargo, unload cargo (to get confirmed). (We'll keep TP attached after unload? Actually unload does not affect TP link. So after unload, TP still linked.)
+
+- Then detach TP from origin (to free). Now origin still prepared, but TP not linked.
+
+- Attach TP to destination, prepare destination (need cargo_available? For preparing destination we need cargo_available? Prepare does not need cargo. It just needs candidate_prepared? Wait confirm_candidate_preparedness requires candidate_prepared? Actually its precondition includes candidate_prepared? No, it requires candidate_created, vehicle_allocated, candidate_task_profile_linked, not candidate_prepared. So we need vehicle_allocated for destination. So we must allocate vehicle to destination before preparing.
+
+Thus steps:
+
+- Allocate vehicle_unit_beta to destination_availability_alpha.
+
+- Attach TP to destination.
+
+- Confirm candidate_prepared for destination.
+
+- (Optionally activate destination node? Need destination_node_ready and occupied etc.)
+
+- Load cargo onto destination? We need destination_node_occupied and destination_node_ready, destination_availability_locked and confirmed.
+
+We can follow similar pattern: activate destination node, load cargo, unload cargo to get confirmed, while keeping node occupied and ready.
+
+But note: we need cargo available for loading. After origin steps, cargo_available is true (since unload returned cargo). Good.
+
+Now we need to allocate vehicle to destination before preparing.
+
+Let's outline:
+
+Origin side steps (we'll keep track of state):
+
+Initial state:
+
+- candidate_created origin_availability_alpha true
+- vehicle_allocated origin_availability_alpha true (init)
+- candidate_vehicle_linked origin_availability_alpha vehicle_unit_alpha (init)
+- cargo_available cargo_payload_alpha true
+- origin_availability_node_linked origin_availability_alpha origin_node_alpha true
+- origin_node_ready false
+- origin_node_occupied false
+- origin_availability_locked false
+- origin_availability_confirmed false
+- candidate_prepared origin_availability_alpha false (init)
+- candidate_task_profile_linked origin_availability_alpha ? false
+
+Destination side:
+
+- candidate_created destination_availability_alpha true
+- vehicle_allocated destination_availability_alpha false
+- candidate_vehicle_linked none
+- destination_availability_node_linked destination_availability_alpha destination_node_alpha true
+- destination_node_ready false
+- destination_node_occupied false
+- destination_availability_locked false
+- destination_availability_confirmed false
+- candidate_prepared destination_availability_alpha false
+- candidate_task_profile_linked destination_availability_alpha ? false
+
+Transport leg: transport_leg_alpha available, not assembled, not linked.
+
+We also have shift_candidate_alpha etc but not needed for goal except dispatched shift_candidate_alpha (we will dispatch later).
+
+Now plan steps:
+
+1. attach_task_profile origin_availability_alpha route_task_profile_alpha
+2. confirm_candidate_preparedness origin_availability_alpha route_task_profile_alpha
+3. activate_origin_node origin_availability_alpha origin_node_alpha route_task_profile_alpha
+4. load_origin_payload origin_availability_alpha origin_node_alpha cargo_payload_alpha (loading variant)
+5. unload_origin_payload origin_availability_alpha origin_node_alpha route_task_profile_alpha cargo_payload_alpha
+   (Note: this unload action requires candidate_task_profile_linked; we still have it attached, good.)
+   After unload, origin_node_ready true, origin_availability_confirmed true, cargo_available true, origin_node_occupied still true, origin_availability_locked true.
+
+Now origin satisfies: candidate_prepared true, candidate_task_profile_linked true, origin_node_occupied true, origin_node_ready true, origin_availability_locked true, origin_availability_confirmed true.
+
+We also still have vehicle_allocated origin_availability_alpha true (vehicle_unit_alpha). Good.
+
+Now we need to free TP from origin to use for destination.
+
+6. detach_task_profile origin_availability_alpha route_task_profile_alpha
+   Precondition: candidate_task_profile_linked origin_availability_alpha route_task_profile_alpha (true). Effect: route_task_profile_available becomes true, and candidate_task_profile_linked removed.
+
+Now origin loses TP link but remains prepared.
+
+Now destination side:
+
+We need to allocate vehicle_unit_beta to destination_availability_alpha.
+
+7. allocate_vehicle_unit destination_availability_alpha vehicle_unit_beta
+   Precondition: candidate_created destination_availability_alpha true, not vehicle_allocated destination_availability_alpha true (currently false), vehicle_available vehicle_unit_beta true (init). Effect: vehicle_allocated destination_availability_alpha true, candidate_vehicle_linked destination_availability_alpha vehicle_unit_beta, vehicle_available vehicle_unit_beta becomes false.
+
+Now we need to attach TP to destination.
+
+8. attach_task_profile destination_availability_alpha route_task_profile_alpha
+   Precondition: candidate_created destination_availability_alpha true, vehicle_allocated destination_availability_alpha true (just set), route_task_profile_available true (we just made it available). Effect: candidate_task_profile_linked destination_availability_alpha route_task_profile_alpha true, route_task_profile_available false.
+
+Now prepare destination:
+
+9. confirm_candidate_preparedness destination_availability_alpha route_task_profile_alpha
+   Precondition: candidate_created destination_availability_alpha true, vehicle_allocated destination_availability_alpha true, candidate_task_profile_linked destination_availability_alpha route_task_profile_alpha true, not candidate_prepared destination_availability_alpha true. Effect: candidate_prepared destination_availability_alpha true.
+
+Now activate destination node:
+
+10. activate_destination_node destination_availability_alpha destination_node_alpha route_task_profile_alpha
+    Precondition: candidate_pre

@@ -1,0 +1,1033 @@
+We need to produce a plan achieving the goal with minimal number of actions.
+
+Goal:
+- (dispatched shift_candidate_alpha)
+- (dispatched origin_availability_alpha)
+- (dispatched destination_availability_alpha)
+- (candidate_staged_for_loading shift_candidate_beta)
+- (candidate_operator_linked shift_candidate_beta driver_operator_alpha)
+- (candidate_skill_certificate_linked shift_candidate_beta skill_certificate_alpha)
+- (compliance_certificate_available compliance_certificate_alpha) [initial? Yes it's in init: compliance_certificate_available compliance_certificate_alpha. Actually goal includes it to ensure still available? It may be used or not, but we need it still available at end. It initially available; some actions may consume it (assign_compliance_certificate etc). We must not consume it unless required; we can keep it available by not using it.
+
+We have two schedule candidates: shift_candidate_alpha and shift_candidate_beta (both schedule_candidate). Also origin_availability_alpha and destination_availability_alpha are candidate entities (origin_candidate_availability and destination_candidate_availability). They need to be dispatched. Also we need shift_candidate_beta to be staged for loading, operator linked, skill certificate linked.
+
+We have also shift_candidate_alpha and beta have links to origin_availability_alpha, destination_availability_alpha, transport_leg_alpha, loading_container (alpha for alpha, beta for beta), compliance certificate links? Not present initially. We might need to assign compliance certificates etc for staging? Let's see what is required for candidate_staged_for_loading.
+
+From domain: action stage_schedule_candidate:
+
+Parameters: ?candidate - schedule_candidate ?loading_container - loading_container ?transport_leg - transport_leg ?route_task_profile - route_task_profile
+
+Precondition:
+(and
+  (candidate_prepared ?candidate)
+  (candidate_loading_container_linked ?candidate ?loading_container)
+  (loading_container_loaded ?loading_container)
+  (loading_container_leg_linked ?loading_container ?transport_leg)
+  (candidate_task_profile_linked ?candidate ?route_task_profile)
+  (not (origin_leg_loaded ?transport_leg))
+  (not (candidate_staged_for_loading ?candidate))
+)
+Effect: (candidate_staged_for_loading ?candidate)
+
+Thus to stage shift_candidate_beta we need:
+- candidate_prepared shift_candidate_beta
+- candidate_loading_container_linked shift_candidate_beta loading_container_beta (initially present)
+- loading_container_loaded loading_container_beta
+- loading_container_leg_linked loading_container_beta transport_leg_alpha (need to link)
+- candidate_task_profile_linked shift_candidate_beta route_task_profile_alpha (or some route_task_profile)
+- not origin_leg_loaded transport_leg_alpha
+- not candidate_staged_for_loading shift_candidate_beta (init false)
+
+Thus we need to prepare shift_candidate_beta: candidate_prepared requires candidate_created, vehicle_allocated, candidate_task_profile_linked, then confirm_candidate_preparedness.
+
+Thus we need to create candidate, allocate vehicle, attach task profile, confirm preparedness.
+
+Also need loading_container_loaded: action load_container_onto_leg loads a loading container onto a transport leg.
+
+Precondition:
+(candidate_prepared ?candidate)
+(candidate_transport_leg_linked ?candidate ?transport_leg)
+(candidate_loading_container_linked ?candidate ?loading_container)
+(loading_container_available ?loading_container)
+(transport_leg_assembled ?transport_leg)
+(transport_leg_loading_authorized ?transport_leg)
+(not (loading_container_loaded ?loading_container))
+
+Effect: loading_container_loaded, loading_container_leg_linked, not loading_container_available.
+
+Thus before loading container, we need transport leg assembled and loading authorized.
+
+Transport leg assembly: action assemble_transport_leg (or variants). Need origin and destination availability locked, nodes ready, etc.
+
+We have origin_availability_alpha and destination_availability_alpha linked to nodes. They need to be prepared (candidate_prepared) etc, then we need to lock them, confirm availability, etc.
+
+Goal also requires dispatched origin_availability_alpha and destination_availability_alpha. To dispatch an origin/destination availability, we need action execute_origin_dispatch or execute_destination_dispatch.
+
+Precondition for execute_origin_dispatch:
+(dispatch_allocated ?origin_availability)
+(candidate_vehicle_linked ?origin_availability ?vehicle_unit)
+(candidate_dispatch_slot_linked ?origin_availability ?dispatch_slot)
+(not (dispatched ?origin_availability))
+
+Effect: dispatched, vehicle_available, dispatch_slot_available.
+
+Thus to dispatch origin_availability_alpha we need:
+- dispatch_allocated origin_availability_alpha
+- candidate_vehicle_linked origin_availability_alpha some vehicle_unit
+- candidate_dispatch_slot_linked origin_availability_alpha some dispatch_slot
+- not dispatched (init false)
+
+Similarly for destination.
+
+We also need dispatch_allocated for shift_candidate_alpha (to dispatch it). Action allocate_dispatch_slot_for_candidate:
+
+Parameters: ?candidate - candidate_entity ?dispatch_slot - dispatch_slot ?route_task_profile - route_task_profile
+Precondition:
+(dispatch_ready ?candidate)
+(candidate_task_profile_linked ?candidate ?route_task_profile)
+(dispatch_slot_available ?dispatch_slot)
+(not (dispatch_allocated ?candidate))
+Effect:
+(dispatch_allocated ?candidate)
+(candidate_dispatch_slot_linked ?candidate ?dispatch_slot)
+(not (dispatch_slot_available ?dispatch_slot))
+
+Thus we need dispatch_ready for shift_candidate_alpha (and also for origin/destination availabilities if we want to dispatch them? Actually dispatch_allocated is for candidate_entity, which includes schedule_candidate and origin/destination availability? Yes origin_availability_alpha is of type origin_candidate_availability which is a candidate_entity (since candidate_entity is a type, and origin_candidate_availability is a subtype). So we can allocate dispatch slot for them similarly, using same action? The action allocate_dispatch_slot_for_candidate expects ?candidate - candidate_entity (generic). So we can use it for origin_availability_alpha as well, provided we have dispatch_ready for them.
+
+Thus we need to make origin_availability_alpha dispatch_ready and destination_availability_alpha dispatch_ready.
+
+Dispatch ready actions: mark_origin_availability_dispatch_ready and mark_destination_availability_dispatch_ready.
+
+Precondition for mark_origin_availability_dispatch_ready:
+(origin_availability_locked ?origin_availability)
+(origin_availability_confirmed ?origin_availability)
+(transport_leg_assembled ?transport_leg)
+(transport_leg_loading_authorized ?transport_leg)
+(not (dispatch_ready ?origin_availability))
+
+Effect: dispatch_ready.
+
+Similarly for destination.
+
+Thus we need to lock and confirm origin/destination availability, assemble transport leg, authorize loading.
+
+Locking origin availability: action lock_origin_availability.
+
+Precondition:
+(candidate_prepared ?origin_availability)
+(candidate_operator_linked ?origin_availability ?operator_resource)
+(origin_availability_node_linked ?origin_availability ?origin_node)
+(origin_node_ready ?origin_node)
+(not (origin_availability_locked ?origin_availability))
+Effect: origin_availability_locked and origin_availability_confirmed.
+
+Thus we need candidate_prepared for origin_availability_alpha, operator linked, origin node ready.
+
+Similarly for destination.
+
+Thus overall we need to prepare origin_availability_alpha and destination_availability_alpha (candidate_prepared). They also need vehicle allocated? Wait candidate_prepared only requires candidate_created, vehicle_allocated, candidate_task_profile_linked, then confirm_candidate_preparedness. Yes same as for schedule candidates.
+
+Thus we need to create origin_availability_alpha (it's already an object but not created; we need to run create_candidate on it). Similarly for destination_availability_alpha.
+
+Also need to allocate vehicle units to them (vehicle_allocated). We have three vehicle units: alpha, beta, gamma. We'll need to allocate maybe one each.
+
+We also need to attach task profile to them (candidate_task_profile_linked). We have route_task_profile_alpha.
+
+Thus for each of origin_availability_alpha and destination_availability_alpha we need to:
+
+- create_candidate
+- allocate_vehicle_unit (pick a vehicle)
+- attach_task_profile (link route_task_profile)
+- confirm_candidate_preparedness
+
+Then we can lock them (requires candidate_prepared, candidate_operator_linked, origin_availability_node_linked (already present), origin_node_ready). Need operator linked: assign_operator_resource.
+
+Origin availability node linked already present in init. Destination also.
+
+We need to activate origin node? Actually origin_node_ready is needed for lock. There's action activate_origin_node to make origin_node_ready. Precondition: candidate_prepared ?origin_availability, candidate_task_profile_linked, origin_availability_node_linked, not origin_node_ready, not origin_node_occupied. Effect: origin_node_ready.
+
+Thus we need to activate origin node before locking.
+
+Similarly destination node.
+
+Thus steps:
+
+For origin_availability_alpha:
+1. create_candidate origin_availability_alpha
+2. allocate_vehicle_unit origin_availability_alpha vehicle_unit_alpha (or beta/gamma)
+3. attach_task_profile origin_availability_alpha route_task_profile_alpha
+4. confirm_candidate_preparedness origin_availability_alpha route_task_profile_alpha
+5. activate_origin_node origin_availability_alpha origin_node_alpha route_task_profile_alpha
+6. assign_operator_resource origin_availability_alpha driver_operator_alpha (need operator available)
+7. lock_origin_availability origin_availability_alpha origin_node_alpha driver_operator_alpha
+   (this also sets origin_availability_confirmed)
+Similarly for destination:
+8. create_candidate destination_availability_alpha
+9. allocate_vehicle_unit destination_availability_alpha vehicle_unit_beta (or another)
+10. attach_task_profile destination_availability_alpha route_task_profile_alpha
+11. confirm_candidate_preparedness destination_availability_alpha route_task_profile_alpha
+12. activate_destination_node destination_availability_alpha destination_node_alpha route_task_profile_alpha
+13. assign_operator_resource destination_availability_alpha driver_operator_alpha (but operator already used? Operator can only be linked to one candidate at a time; after assigning to origin, operator becomes not available. We need to release before assigning to destination. So we need to release operator after origin lock? Actually after lock, we still have candidate_operator_linked; the operator is not available. To assign to destination we need to release first. So we need release_operator_resource after lock? But lock does not release operator; it keeps link. So we need to release operator from origin before assigning to destination, or we could use a different operator but we only have one. So we need to release after lock, then assign to destination.
+
+Thus after locking origin, we do release_operator_resource origin_availability_alpha driver_operator_alpha.
+
+Then assign to destination.
+
+But note: lock_origin_availability effect includes origin_availability_locked and origin_availability_confirmed; does it preserve candidate_operator_linked? It does not delete it. So after lock, candidate_operator_linked still true. Then releasing will make operator available and remove link.
+
+Thus after releasing, we still have origin_availability_locked and confirmed (those remain). Good.
+
+Then assign operator to destination.
+
+Then lock_destination_availability.
+
+Now we need to assemble transport leg. For that we need origin and destination availability locked and confirmed, nodes ready, transport leg available.
+
+We have origin_availability_locked and confirmed after lock, destination similarly.
+
+We also need origin_node_ready and destination_node_ready (they become ready via activate actions). Also need origin_node_occupied? Not required for basic assemble_transport_leg (just need origin_node_ready and destination_node_ready, and origin_availability_confirmed, destination_availability_confirmed). Actually assemble_transport_leg precondition includes origin_node_ready, destination_node_ready, origin_availability_confirmed, destination_availability_confirmed, transport_leg_available. It does NOT require nodes occupied. So we can use that.
+
+Thus after locking both, we can assemble transport leg.
+
+Action assemble_transport_leg parameters: origin_availability, destination_availability, origin_node, destination_node, transport_leg.
+
+Precondition includes origin_availability_locked, destination_availability_locked, origin_availability_node_linked, destination_availability_node_linked, origin_node_ready, destination_node_ready, origin_availability_confirmed, destination_availability_confirmed, transport_leg_available.
+
+Thus we need to have those.
+
+Thus after locking both, we can assemble.
+
+Then we need to authorize transport leg loading: action authorize_transport_leg_loading with parameters transport_leg, origin_availability, route_task_profile.
+
+Precondition: transport_leg_assembled, origin_availability_locked, candidate_task_profile_linked ?origin_availability ?route_task_profile, not transport_leg_loading_authorized.
+
+Thus we need candidate_task_profile_linked for origin_availability (we attached earlier). Good.
+
+After authorizing, we can load container onto leg: load_container_onto_leg.
+
+Precondition: candidate_prepared ?candidate (which candidate? The action uses ?candidate - schedule_candidate? Actually load_container_onto_leg parameters: ?candidate - schedule_candidate ?loading_container - loading_container ?transport_leg - transport_leg. So it expects a schedule_candidate, not origin/destination availability. Wait reading: (:action load_container_onto_leg
+    :parameters (?candidate - schedule_candidate ?loading_container - loading_container ?transport_leg - transport_leg)
+    :precondition
+      (and
+        (candidate_prepared ?candidate)
+        (candidate_transport_leg_linked ?candidate ?transport_leg)
+        (candidate_loading_container_linked ?candidate ?loading_container)
+        (loading_container_available ?loading_container)
+        (transport_leg_assembled ?transport_leg)
+        (transport_leg_loading_authorized ?transport_leg)
+        (not
+          (loading_container_loaded ?loading_container)
+        )
+      )
+    :effect
+      (and
+        (loading_container_loaded ?loading_container)
+        (loading_container_leg_linked ?loading_container ?transport_leg)
+        (not
+          (loading_container_available ?loading_container)
+        )
+      )
+  )
+
+Thus to load container onto leg we need a schedule_candidate (i.e., shift_candidate_alpha or beta) that is prepared, has transport leg linked, loading container linked, etc. So we need to use shift_candidate_alpha (or beta) to load container onto the leg. However we also need to load container for the purpose of staging shift_candidate_beta. Actually we need loading_container_loaded and loading_container_leg_linked for loading_container_beta to be used in stage_schedule_candidate for shift_candidate_beta.
+
+Thus we need to load container_beta onto transport_leg_alpha using shift_candidate_beta as the candidate (since it needs candidate_prepared, candidate_transport_leg_linked, candidate_loading_container_linked). We have candidate_transport_leg_linked shift_candidate_beta transport_leg_alpha (init). candidate_loading_container_linked shift_candidate_beta loading_container_beta (init). So we need shift_candidate_beta prepared, transport leg assembled, loading authorized, loading container available (it is), then load container.
+
+Thus we need to prepare shift_candidate_beta similarly to origin/destination.
+
+Thus steps for shift_candidate_beta:
+- create_candidate shift_candidate_beta (but it's already an object; we need to create)
+- allocate vehicle unit (maybe vehicle_unit_gamma)
+- attach_task_profile shift_candidate_beta route_task_profile_alpha
+- confirm_candidate_preparedness shift_candidate_beta route_task_profile_alpha
+- (maybe need compliance certificate etc for later steps? For staging we don't need compliance certificate; but for clearance establishment we might need compliance certificate if we go through establish_clearance_nominal etc. However stage_schedule_candidate does not require compliance certificate. It only requires candidate_prepared, loading container linked, loading container loaded, loading container leg linked, candidate_task_profile_linked, not origin_leg_loaded, not candidate_staged_for_loading. So we don't need compliance certificate for staging. Good.
+
+Thus after preparing shift_candidate_beta, we need to assemble transport leg (we already will have assembled for origin/destination dispatch; but we need it assembled for loading container). The transport leg must be assembled before loading container. We'll assemble after origin/destination locks.
+
+Thus after assembling transport leg, we need to authorize loading (requires origin_availability_locked and candidate_task_profile_linked for origin_availability). We have origin_availability_alpha locked and task profile linked. Good.
+
+Then load container onto leg using shift_candidate_beta as candidate.
+
+After loading container, we have loading_container_loaded and loading_container_leg_linked for loading_container_beta.
+
+Then we can stage shift_candidate_beta: stage_schedule_candidate requires candidate_prepared (we have), candidate_loading_container_linked (we have), loading_container_loaded (yes), loading_container_leg_linked (yes), candidate_task_profile_linked (we have), not origin_leg_loaded (we need to ensure origin leg not loaded), not candidate_staged_for_loading (we haven't). So we need to ensure origin_leg_loaded is false. The origin_leg_loaded predicate is set by assemble_origin_loaded_leg or assemble_fully_loaded_leg etc. Our assemble_transport_leg does not set origin_leg_loaded. So it's false. Good.
+
+Thus stage_schedule_candidate will work.
+
+Now we also need candidate_operator_linked shift_candidate_beta driver_operator_alpha and candidate_skill_certificate_linked shift_candidate_beta skill_certificate_alpha.
+
+Thus after preparing shift_candidate_beta, we need to assign operator and skill certificate.
+
+We have only one operator; we used it for origin then released, then assigned to destination, then after destination lock we need to release again to use for shift_candidate_beta? Actually we need operator for shift_candidate_beta at the end. We can allocate after releasing from destination.
+
+Thus after locking destination, we release operator from destination, then assign to shift_candidate_beta.
+
+Skill certificate: we have skill_certificate_alpha available; we need to assign to shift_candidate_beta via assign_skill_certificate (requires candidate_prepared). So after preparing shift_candidate_beta, we can assign skill certificate.
+
+Compliance certificate: goal requires compliance_certificate_available compliance_certificate_alpha (still available). We must not consume it. So we should not assign compliance certificate to any candidate. Good.
+
+Now we also need to dispatch shift_candidate_alpha, origin_availability_alpha, destination_availability_alpha.
+
+We need to make them dispatch_ready, allocate dispatch slot, then execute dispatch.
+
+We have only one dispatch_slot_alpha (initially available). We need to dispatch three entities; each dispatch consumes the dispatch slot (makes it unavailable) and then after execute_dispatch, the slot becomes available again (effect adds dispatch_slot_available). So we can reuse same slot sequentially.
+
+Thus we need to allocate dispatch slot for each candidate before executing dispatch, and after each execute, slot becomes available again.
+
+Thus we need to make each candidate dispatch_ready.
+
+Dispatch ready for shift_candidate_alpha: need mark_origin? Actually shift_candidate_alpha is schedule_candidate; there is no specific mark_dispatch_ready for schedule_candidate? There is no explicit action; but we have finalize_candidate_after_compliance_validation and finalize_candidate_after_sequence_validation and finalize_candidate_direct which set dispatch_ready as effect. Also there is mark_origin_availability_dispatch_ready and mark_destination_availability_dispatch_ready for origin/destination.
+
+Thus for shift_candidate_alpha schedule_candidate, we need to make it dispatch_ready via either finalize_candidate_after_compliance_validation, finalize_candidate_after_sequence_validation, or finalize_candidate_direct. Which one is feasible? We have not set up compliance validation or sequence validation etc. We could use finalize_candidate_direct which requires candidate_clearance_established and not route_sequence_context_set and not candidate_finalized. Effect sets candidate_finalized and dispatch_ready.
+
+Thus we need candidate_clearance_established for shift_candidate_alpha. To get clearance, we need to establish clearance via one of the establish_clearance_* actions. Those require candidate_loading_verified, candidate_compliance_certificate_linked, candidate_loading_container_linked, loading_container_leg_linked, and certain leg loaded flags.
+
+We could go for establish_clearance_nominal which requires candidate_loading_verified, candidate_compliance_certificate_linked, candidate_loading_container_linked, loading_container_leg_linked, not origin_leg_loaded, not destination_leg_loaded, not candidate_clearance_established.
+
+Thus we need loading verified, compliance certificate linked, loading container linked, loading container leg linked, and no leg loaded.
+
+We have shift_candidate_alpha already has loading container linked (loading_container_alpha) and transport leg linked. We need loading container loaded and leg linked. So we need to load container_alpha onto transport leg using shift_candidate_alpha as candidate (similar to beta). Also need loading_verified (which requires candidate_staged_for_loading and skill certificate etc). Actually verify_loading_profile_* actions require candidate_staged_for_loading, skill certificate linked, operator linked, loading container linked, loading container leg linked, and destination_leg_loaded or not depending.
+
+Thus to get loading_verified we need to stage shift_candidate_alpha first (candidate_staged_for_loading). Then verify loading profile (either destination flag or nominal). That will set candidate_loading_verified.
+
+Thus many steps.
+
+Alternatively we could use finalize_candidate_after_sequence_validation which requires candidate_clearance_established and route_sequence_validated. That also requires clearance.
+
+Or finalize_candidate_after_compliance_validation requires compliance_validation_complete and not candidate_finalized. Compliance validation complete requires operator_alignment_confirmed and candidate_compliance_certificate_linked and not compliance_validation_complete. So we would need to link compliance certificate and confirm operator alignment.
+
+Thus many paths.
+
+Given complexity, maybe easiest is to use finalize_candidate_direct which only requires candidate_clearance_established and not route_sequence_context_set and not candidate_finalized. So we need clearance only.
+
+Thus we need to establish clearance for shift_candidate_alpha.
+
+We can use establish_clearance_nominal (requires loading_verified, compliance cert linked, loading container linked, loading container leg linked, not origin_leg_loaded, not destination_leg_loaded, not clearance). So we need loading_verified and compliance certificate linked.
+
+Thus we need to link compliance certificate to shift_candidate_alpha (assign_compliance_certificate). That will consume compliance certificate (make it unavailable). But goal requires compliance_certificate_available at end. So we cannot consume it. However we could link then later release it? The goal requires compliance_certificate_available at end, so we need it available after all actions. If we assign then release, it becomes available again. That's okay as long as we have it available at the end. The goal does not require it to be linked; just available. So we can assign compliance certificate to shift_candidate_alpha, then later release it, making it available again.
+
+Thus we need to assign compliance certificate, then later release after establishing clearance? Actually establish_clearance_nominal requires candidate_compliance_certificate_linked, so we need it linked during the action. After establishing clearance, we can release compliance certificate (action release_compliance_certificate) to make it available again.
+
+Thus we can do: assign_compliance_certificate to shift_candidate_alpha, establish_clearance_nominal, release_compliance_certificate.
+
+Thus compliance certificate will be available at end.
+
+Now we need loading_verified for shift_candidate_alpha. To get loading_verified we need to stage shift_candidate_alpha then verify loading profile.
+
+Thus steps for shift_candidate_alpha similar to beta but also need compliance certificate.
+
+Thus overall plan:
+
+- Prepare origin_availability_alpha (create, allocate vehicle, attach task profile, confirm prepared, activate node, assign operator, lock, release operator)
+- Prepare destination_availability_alpha similarly (create, allocate vehicle, attach task profile, confirm prepared, activate node, assign operator, lock, release operator)
+- Prepare shift_candidate_alpha (create, allocate vehicle, attach task profile, confirm prepared)
+- Prepare shift_candidate_beta (create, allocate vehicle, attach task profile, confirm prepared)
+- Assemble transport leg (requires origin and destination locked and confirmed, nodes ready, transport leg available)
+- Authorize transport leg loading (requires origin_availability_locked and candidate_task_profile_linked for origin)
+- For shift_candidate_alpha: load container_alpha onto leg (load_container_onto_leg)
+- For shift_candidate_alpha: stage_schedule_candidate (requires loading_container_loaded etc) but we need loading_container_loaded and leg linked. Actually stage_schedule_candidate requires loading_container_loaded and loading_container_leg_linked, candidate_prepared, loading container linked, task profile linked, not origin_leg_loaded, not candidate_staged_for_loading. So after loading container, we can stage.
+- For shift_candidate_alpha: verify loading profile (choose nominal or destination flag). We need skill certificate and operator linked. We'll assign skill certificate and operator to shift_candidate_alpha (we have operator available after releasing from destination). Then verify loading profile nominal (requires not destination_leg_loaded). Since we haven't loaded destination leg, we can use nominal.
+- Then assign compliance certificate to shift_candidate_alpha.
+- Then establish_clearance_nominal (requires loading_verified, compliance_certificate_linked, loading_container_linked, loading_container_leg_linked, not origin_leg_loaded, not destination_leg_loaded, not clearance). We'll have loading_verified after verification, compliance certificate linked, loading container linked, leg linked, no leg loaded.
+- Then release compliance certificate (to make available).
+- Then finalize_candidate_direct (requires candidate_clearance_established, not route_sequence_context_set, not candidate_finalized). This will set dispatch_ready and candidate_finalized.
+- Then allocate dispatch slot for shift_candidate_alpha (requires dispatch_ready, candidate_task_profile_linked, dispatch_slot_available, not dispatch_allocated). We'll have dispatch_ready after finalize.
+- Then execute_origin_dispatch? Wait we need to dispatch shift_candidate_alpha (schedule_candidate). There's action execute_schedule_dispatch for schedule_candidate. Yes there is execute_schedule_dispatch (parameters ?candidate - schedule_candidate ?vehicle_unit - vehicle_unit ?dispatch_slot - dispatch_slot). Precondition: dispatch_allocated ?candidate, candidate_vehicle_linked ?candidate ?vehicle_unit, candidate_dispatch_slot_linked ?candidate ?dispatch_slot, not dispatched ?candidate. Effect: dispatched, vehicle_available, dispatch_slot_available.
+
+Thus after allocating dispatch slot, we need to execute_schedule_dispatch.
+
+Thus we need to allocate vehicle unit to shift_candidate_alpha (we already did during prepare). Good.
+
+We also need to link dispatch slot: allocate_dispatch_slot_for_candidate does that.
+
+Thus after allocate_dispatch_slot_for_candidate, we have dispatch_allocated and candidate_dispatch_slot_linked.
+
+Then execute_schedule_dispatch.
+
+Similarly for origin_availability_alpha and destination_availability_alpha: we need to make them dispatch_ready via mark_origin_availability_dispatch_ready and mark_destination_availability_dispatch_ready, then allocate dispatch slot, then execute dispatch.
+
+Thus we need to also have vehicle allocated and dispatch slot linked for them.
+
+Thus we need to allocate vehicle units to origin and destination (we already did during prepare). Good.
+
+We need to allocate dispatch slot for each.
+
+Thus overall many actions.
+
+We must ensure we don't violate preconditions like vehicle availability: we have three vehicles; we will allocate one each to origin, destination, shift_candidate_alpha, shift_candidate_beta? That's four vehicles needed but we only have three. However we can reuse vehicles after they become available again after dispatch actions (vehicle_available added). So we can allocate, then after dispatch, vehicle becomes available again, can be reused for another candidate.
+
+Thus we need to schedule carefully.
+
+Let's enumerate resources:
+
+Vehicles: alpha, beta, gamma.
+
+We need to allocate to:
+- origin_availability_alpha (needs vehicle)
+- destination_availability_alpha (needs vehicle)
+- shift_candidate_alpha (needs vehicle)
+- shift_candidate_beta (needs vehicle)
+
+That's four allocations, but we can re-use after each dispatch.
+
+Thus we can do:
+
+1. Prepare origin (allocate vehicle_alpha)
+2. Prepare destination (allocate vehicle_beta)
+3. Prepare shift_candidate_alpha (allocate vehicle_gamma)
+4. Prepare shift_candidate_beta (need vehicle; after some dispatches we can free a vehicle)
+
+We could dispatch origin and destination early to free their vehicles for shift_candidate_beta.
+
+Thus plan order:
+
+- Prepare origin (create, allocate vehicle_alpha, attach task profile, confirm prepared, activate node, assign operator, lock, release operator)
+- Prepare destination (create, allocate vehicle_beta, attach task profile, confirm prepared, activate node, assign operator, lock, release operator)
+- Assemble transport leg (requires origin and destination locked/confirmed, nodes ready, transport leg available)
+- Authorize loading (origin_availability_locked, candidate_task_profile_linked for origin)
+- Now we have origin and destination ready; we can dispatch them to free vehicles.
+
+Thus after assembling leg and authorizing loading, we can:
+
+- Allocate dispatch slot for origin_availability_alpha (requires dispatch_ready). Need to make origin dispatch_ready via mark_origin_availability_dispatch_ready (requires transport_leg_assembled and loading_authorized). We have those after assemble and authorize. So we can mark origin dispatch ready.
+- Then allocate dispatch slot for origin.
+- Then execute_origin_dispatch (which will make vehicle_available again and dispatch_slot_available).
+- Similarly for destination: mark_destination_availability_dispatch_ready, allocate slot, execute.
+
+After those dispatches, origin and destination vehicles become available again.
+
+Now we can prepare shift_candidate_alpha and beta using freed vehicles.
+
+We also need to load container onto leg for shift_candidate_alpha and beta.
+
+We need to load container_alpha for alpha and container_beta for beta. We can do sequentially.
+
+We need to have transport leg assembled and loading authorized (still true). Loading authorized remains true unless we do something that removes it; none of our actions remove it. So we can load multiple containers? The action load_container_onto_leg loads a specific loading container onto the leg, and sets loading_container_leg_linked. It also sets loading_container_loaded and makes container unavailable. After loading one container, the other container is still available. However the leg can have multiple containers linked? The predicate loading_container_leg_linked can be true for multiple containers? Possibly yes, but not restricted. However loading_container_loaded is per container; we can load both containers.
+
+Thus we can load container_alpha using shift_candidate_alpha, then load container_beta using shift_candidate_beta (or reverse). However stage_schedule_candidate for beta requires loading_container_loaded and loading_container_leg_linked for its container. So we need to load beta's container before staging beta.
+
+Thus we can load alpha container, then stage alpha, verify loading, assign compliance, establish clearance, release compliance, finalize, allocate slot, execute dispatch.
+
+Then for beta: load beta container, stage beta, assign operator and skill certificate (we need operator and skill certificate), but we do not need compliance verification or clearance for beta (goal only requires staged, operator linked, skill certificate linked). So we can stop after staging.
+
+Thus we need to ensure we have operator and skill certificate available for beta after we finish with alpha.
+
+Operator: we will have released after destination dispatch, then we can assign to alpha for verification, then after verification we may need to release operator? The verify_loading_profile_* actions require candidate_operator_linked, but do not change it. So after verification, operator remains linked. We need operator free for beta later. So we need to release operator from alpha after verification (or before assigning to beta). We can release after verification.
+
+Skill certificate: we need to assign to alpha for verification, then release after verification to make available for beta.
+
+Thus we need skill_certificate_alpha: assign to alpha for verification, then release.
+
+Now we need to ensure we have compliance certificate linked for alpha during establishment, then release after.
+
+Thus many steps.
+
+Let's outline detailed steps with objects:
+
+Objects:
+- origin_availability_alpha (oa)
+- destination_availability_alpha (da)
+- shift_candidate_alpha (ca)
+- shift_candidate_beta (cb)
+- vehicle_unit_alpha (va)
+- vehicle_unit_beta (vb)
+- vehicle_unit_gamma (vg)
+- route_task_profile_alpha (rtp)
+- driver_operator_alpha (op)
+- cargo_payload_alpha (cp) - not needed maybe.
+- origin_node_alpha (on)
+- destination_node_alpha (dn)
+- transport_leg_alpha (tl)
+- loading_container_alpha (lcA)
+- loading_container_beta (lcB)
+- equipment_resource_alpha (erA) - maybe not needed
+- equipment_resource_beta (erB)
+- service_window_alpha (swA) - not needed
+- service_window_beta (swB)
+- dispatch_slot_alpha (ds)
+- skill_certificate_alpha (sc)
+- operational_constraint_alpha (ocA) - not needed
+- operational_constraint_beta (ocB) - not needed
+- compliance_certificate_alpha (cc)
+
+Goal:
+- dispatched ca
+- dispatched oa
+- dispatched da
+- candidate_staged_for_loading cb
+- candidate_operator_linked cb op
+- candidate_skill_certificate_linked cb sc
+- compliance_certificate_available cc
+
+Now we need to produce plan.
+
+Let's design stepwise.
+
+We'll need to keep track of state.
+
+I'll attempt to construct a plan with minimal actions. But we need to ensure all preconditions satisfied.
+
+Given complexity, maybe there is a simpler plan: maybe we can dispatch origin and destination without needing to lock them? Actually dispatch requires dispatch_allocated, which requires dispatch_ready, which requires lock and confirm and transport leg assembled and loading authorized. So we need those.
+
+Thus we need to assemble leg and authorize loading before we can dispatch origin/destination.
+
+Thus we need to prepare origin and destination (create, allocate vehicle, attach task profile, confirm prepared, activate node, assign operator, lock) before we can lock them. Actually lock requires candidate_prepared and candidate_operator_linked and origin_node_ready. So we need to activate node before lock.
+
+Thus steps for origin:
+
+1. create_candidate oa
+2. allocate_vehicle_unit oa va
+3. attach_task_profile oa rtp
+4. confirm_candidate_preparedness oa rtp
+5. activate_origin_node oa on rtp
+6. assign_operator_resource oa op
+7. lock_origin_availability oa on op   (this also sets origin_availability_confirmed)
+8. release_operator_resource oa op   (to free op for others)
+
+Similarly for destination:
+
+9. create_candidate da
+10. allocate_vehicle_unit da vb
+11. attach_task_profile da rtp
+12. confirm_candidate_preparedness da rtp
+13. activate_destination_node da dn rtp
+14. assign_operator_resource da op
+15. lock_destination_availability da dn op
+16. release_operator_resource da op
+
+Now we have oa locked&confirmed, da locked&confirmed, nodes ready (activated). Transport leg still available.
+
+Now assemble transport leg:
+
+17. assemble_transport_leg oa da on dn tl
+
+Precondition: oa locked, da locked, oa node linked, da node linked, origin_node_ready, destination_node_ready, oa confirmed, da confirmed, transport_leg_available. All true.
+
+Effect: transport_leg_assembled, origin linked, destination linked, transport_leg not available.
+
+Now authorize loading:
+
+18. authorize_transport_leg_loading tl oa rtp
+
+Precondition: transport_leg_assembled, oa locked, candidate_task_profile_linked oa rtp (we attached earlier), not loading_authorized. Effect: transport_leg_loading_authorized.
+
+Now we have leg assembled and loading authorized.
+
+Now we can dispatch origin and destination.
+
+But before dispatch we need to make them dispatch_ready via mark_origin_availability_dispatch_ready and mark_destination_availability_dispatch_ready.
+
+These require transport_leg_assembled and transport_leg_loading_authorized (we have), origin_availability_locked and confirmed, destination similarly.
+
+Thus:
+
+19. mark_origin_availability_dispatch_ready oa tl
+20. mark_destination_availability_dispatch_ready da tl
+
+Now we need to allocate dispatch slot for each and execute dispatch.
+
+We have one dispatch slot ds.
+
+We'll dispatch origin first:
+
+21. allocate_dispatch_slot_for_candidate oa ds rtp   (candidate_entity oa, dispatch slot ds, route_task_profile rtp)
+Precondition: dispatch_ready oa (we just set), candidate_task_profile_linked oa rtp (yes), dispatch_slot_available ds (initially true), not dispatch_allocated oa (false). Effect: dispatch_allocated oa, candidate_dispatch_slot_linked oa ds, not dispatch_slot_available ds.
+
+22. execute_origin_dispatch oa va ds   (vehicle unit we allocated earlier va)
+Precondition: dispatch_allocated oa, candidate_vehicle_linked oa va (we allocated earlier), candidate_dispatch_slot_linked oa ds, not dispatched oa. Effect: dispatched oa, vehicle_available va, dispatch_slot_available ds.
+
+Now origin dispatched, vehicle va available, slot available.
+
+Now dispatch destination:
+
+23. allocate_dispatch_slot_for_candidate da ds rtp
+Precondition: dispatch_ready da (we set), candidate_task_profile_linked da rtp, dispatch_slot_available ds (now true after origin dispatch), not dispatch_allocated da.
+Effect: dispatch_allocated da, candidate_dispatch_slot_linked da ds, not dispatch_slot_available ds.
+
+24. execute_destination_dispatch da vb ds   (vehicle vb)
+Precondition: dispatch_allocated da, candidate_vehicle_linked da vb, candidate_dispatch_slot_linked da ds, not dispatched da.
+Effect: dispatched da, vehicle_available vb, dispatch_slot_available ds.
+
+Now both origin and destination dispatched, vehicles va and vb available, slot available.
+
+Now we need to prepare shift_candidate_alpha and beta.
+
+We have vehicles va, vb, vg available. We'll allocate va to alpha, vb to beta? Or any.
+
+Let's prepare shift_candidate_alpha:
+
+25. create_candidate ca
+26. allocate_vehicle_unit ca va   (use va)
+27. attach_task_profile ca rtp
+28. confirm_candidate_preparedness ca rtp
+
+Now we need to load container alpha onto leg.
+
+But we need loading container alpha available (it is). We need to load container onto leg using shift_candidate_alpha as candidate.
+
+Preconditions for load_container_onto_leg: candidate_prepared ca, candidate_transport_leg_linked ca tl (we have from init), candidate_loading_container_linked ca lcA (init), loading_container_available lcA (yes), transport_leg_assembled tl (yes), transport_leg_loading_authorized tl (yes), not loading_container_loaded lcA (true).
+
+Thus:
+
+29. load_container_onto_leg ca lcA tl
+
+Effect: loading_container_loaded lcA, loading_container_leg_linked lcA tl, not loading_container_available lcA.
+
+Now we need to stage ca:
+
+30. stage_schedule_candidate ca lcA tl rtp
+Precondition: candidate_prepared ca (yes), candidate_loading_container_linked ca lcA (yes), loading_container_loaded lcA (yes), loading_container_leg_linked lcA tl (yes), candidate_task_profile_linked ca rtp (yes), not origin_leg_loaded tl (we haven't set origin leg loaded), not candidate_staged_for_loading ca (false).
+Effect: candidate_staged_for_loading ca.
+
+Now we need to verify loading profile. We'll use verify_loading_profile_nominal (requires not destination_leg_loaded). We haven't set destination leg loaded.
+
+Precondition: candidate_staged_for_loading ca, candidate_skill_certificate_linked ca ?skill_certificate, candidate_operator_linked ca ?operator_resource, candidate_loading_container_linked ca lcA, loading_container_leg_linked lcA tl, not destination_leg_loaded tl, not candidate_loading_verified ca.
+
+We need to assign skill certificate and operator to ca before verification.
+
+Thus:
+
+31. assign_skill_certificate ca sc
+Precondition: candidate_prepared ca, skill_certificate_available sc (yes). Effect: candidate_skill_certificate_linked ca sc, not skill_certificate_available sc.
+
+32. assign_operator_resource ca op
+Precondition: candidate_prepared ca, operator_available op (we released after destination dispatch, so op available). Effect: candidate_operator_linked ca op, not operator_available op.
+
+Now we can verify loading profile nominal:
+
+33. verify_loading_profile_nominal ca sc op lcA tl
+Precondition: candidate_staged_for_loading ca, candidate_skill_certificate_linked ca sc, candidate_operator_linked ca op, candidate_loading_container_linked ca lcA, loading_container_leg_linked lcA tl, not destination_leg_loaded tl, not candidate_loading_verified ca.
+Effect: candidate_loading_verified ca.
+
+Now we need to assign compliance certificate to ca:
+
+34. assign_compliance_certificate ca cc
+Precondition: candidate_prepared ca, compliance_certificate_available cc (yes). Effect: candidate_compliance_certificate_linked ca cc, not compliance_certificate_available cc.
+
+Now establish clearance nominal:
+
+35. establish_clearance_nominal ca cc lcA tl
+Precondition: candidate_loading_verified ca, candidate_compliance_certificate_linked ca cc, candidate_loading_container_linked ca lcA, loading_container_leg_linked lcA tl, not origin_leg_loaded tl, not destination_leg_loaded tl, not candidate_clearance_established ca.
+Effect: candidate_clearance_established ca, route_sequence_context_set ca.
+
+Now release compliance certificate to make it available:
+
+36. release_compliance_certificate ca cc
+Precondition: candidate_compliance_certificate_linked ca cc.
+Effect: compliance_certificate_available cc, not candidate_compliance_certificate_linked ca cc.
+
+Now we have clearance and route_sequence_context_set.
+
+Now we need to finalize candidate to get dispatch_ready. We can use finalize_candidate_direct (requires candidate_clearance_established, not route_sequence_context_set? Wait finalize_candidate_direct precondition includes (not (route_sequence_context_set ?candidate)). But after establish_clearance_nominal we set route_sequence_context_set. So finalize_candidate_direct cannot be used because it requires NOT route_sequence_context_set. Indeed finalize_candidate_direct: precondition includes (candidate_clearance_established ?candidate) and (not (route_sequence_context_set ?candidate)). So after establishing clearance nominal, we have route_sequence_context_set true, so cannot use finalize_candidate_direct.
+
+We could use finalize_candidate_after_sequence_validation which requires candidate_clearance_established and route_sequence_validated and not candidate_finalized. Or finalize_candidate_after_compliance_validation which requires compliance_validation_complete and not candidate_finalized.
+
+We have route_sequence_context_set but not route_sequence_validated. We could validate route sequence via validate_route_sequence action.
+
+Validate_route_sequence parameters: ?candidate - schedule_candidate ?origin_availability - origin_candidate_availability ?destination_availability - destination_candidate_availability ?route_task_profile - route_task_profile ?service_window - service_window
+Precondition: candidate_clearance_established ?candidate, route_sequence_context_set ?candidate, candidate_service_window_linked ?candidate ?service_window, candidate_origin_availability_linked ?candidate ?origin_availability, candidate_destination_availability_linked ?candidate ?destination_availability, origin_availability_confirmed ?origin_availability, destination_availability_confirmed ?destination_availability, candidate_task_profile_linked ?candidate ?route_task_profile, not route_sequence_validated ?candidate.
+
+Thus we need to link service window, origin availability, destination availability to ca. We have origin_availability_linked and destination_availability_linked already from init (for both candidates). Actually init includes candidate_origin_availability_linked shift_candidate_alpha origin_availability_alpha and same for beta. So ca already has those links. Good.
+
+We need service_window_linked: we have service_window_alpha and beta available. We can attach service window to ca via attach_service_window.
+
+Precondition: candidate_clearance_established ?candidate, route_sequence_context_set ?candidate, service_window_available ?service_window.
+
+Thus after establishing clearance, we have clearance and context set, so we can attach service window.
+
+Thus steps:
+
+After establishing clearance, we attach service window:
+
+37. attach_service_window ca swA   (or swB)
+Precondition: candidate_clearance_established ca, route_sequence_context_set ca, service_window_available swA (yes). Effect: candidate_service_window_linked ca swA, not service_window_available swA.
+
+Now we can validate route sequence:
+
+38. validate_route_sequence ca oa da rtp swA
+Precondition: candidate_clearance_established ca, route_sequence_context_set ca, candidate_service_window_linked ca swA, candidate_origin_availability_linked ca oa, candidate_destination_availability_linked ca da, origin_availability_confirmed oa, destination_availability_confirmed da, candidate_task_profile_linked ca rtp, not route_sequence_validated ca.
+Effect: route_sequence_validated ca.
+
+Now we can finalize via finalize_candidate_after_sequence_validation:
+
+39. finalize_candidate_after_sequence_validation ca
+Precondition: candidate_clearance_established ca, route_sequence_validated ca, not candidate_finalized ca.
+Effect: candidate_finalized ca, dispatch_ready ca.
+
+Thus after this, ca is dispatch_ready.
+
+Now we need to allocate dispatch slot for ca and execute schedule dispatch.
+
+We also need to ensure operator and skill certificate are still linked? Not required for dispatch. But we may have operator still linked to ca (we assigned earlier). After verification we didn't release operator; we still have operator linked to ca. That's fine; dispatch doesn't require operator not linked.
+
+Skill certificate also still linked; fine.
+
+Now we need to allocate dispatch slot for ca:
+
+40. allocate_dispatch_slot_for_candidate ca ds rtp
+Precondition: dispatch_ready ca (we just set), candidate_task_profile_linked ca rtp (yes), dispatch_slot_available ds (after destination dispatch we released slot), not dispatch_allocated ca (false).
+Effect: dispatch_allocated ca, candidate_dispatch_slot_linked ca ds, not dispatch_slot_available ds.
+
+41. execute_schedule_dispatch ca va ds   (vehicle unit we allocated earlier va)
+Precondition: dispatch_allocated ca, candidate_vehicle_linked ca va (we allocated earlier), candidate_dispatch_slot_linked ca ds, not dispatched ca.
+Effect: dispatched ca, vehicle_available va, dispatch_slot_available ds.
+
+Now ca dispatched.
+
+Now we need to handle shift_candidate_beta: we need it staged for loading, operator linked, skill certificate linked.
+
+We have not yet prepared beta. We'll do after origin/destination dispatches (vehicles free). We have vehicles va and vb available after dispatches; we can use vb for beta.
+
+Prepare beta:
+
+42. create_candidate cb
+43. allocate_vehicle_unit cb vb
+44. attach_task_profile cb rtp
+45. confirm_candidate_preparedness cb rtp
+
+Now load container beta onto leg:
+
+We need loading container beta available (it is). However note that after we loaded container alpha onto leg, loading_container_available lcA is false, but lcB is still true. The transport leg loading_authorized is still true. So we can load container beta.
+
+46. load_container_onto_leg cb lcB tl
+Precondition: candidate_prepared cb, candidate_transport_leg_linked cb tl (yes), candidate_loading_container_linked cb lcB (yes), loading_container_available lcB (yes), transport_leg_assembled tl (yes), transport_leg_loading_authorized tl (yes), not loading_container_loaded lcB (true).
+Effect: loading_container_loaded lcB, loading_container_leg_linked lcB tl, not loading_container_available lcB.
+
+Now stage beta:
+
+47. stage_schedule_candidate cb lcB tl rtp
+Precondition: candidate_prepared cb, candidate_loading_container_linked cb lcB, loading_container_loaded lcB, loading_container_leg_linked lcB tl, candidate_task_profile_linked cb rtp, not origin_leg_loaded tl, not candidate_staged_for_loading cb.
+Effect: candidate_staged_for_loading cb.
+
+Now we need to link operator and skill certificate to beta.
+
+We have operator op currently allocated to ca? Actually after we assigned operator to ca for verification, we haven't released it. We need to release operator from ca before assigning to beta. Also skill certificate sc is currently linked to ca after verification; we need to release it to make available for beta.
+
+Thus we need to release operator from ca and release skill certificate from ca.
+
+We can do that after we have finished with ca's verification and before establishing clearance? Actually we need operator and skill certificate for verification only; after verification we can release them. However we still need compliance certificate linked for establishment; we assigned compliance certificate after verification. So after verification we have operator and skill certificate still linked; we can release them before assigning compliance certificate? The compliance certificate assignment does not require operator or skill certificate. So we can release operator and skill certificate after verification, before assigning compliance certificate.
+
+Thus we adjust order:
+
+After verification (step 33), we release operator and skill certificate from ca:
+
+34. release_operator_resource ca op
+35. release_skill_certificate ca sc
+
+Then assign compliance certificate:
+
+36. assign_compliance_certificate ca cc
+37. establish_clearance_nominal ca cc lcA tl
+38. release_compliance_certificate ca cc
+
+Then attach service window, validate route sequence, finalize, allocate slot, execute dispatch.
+
+Thus after step 33 we add releases.
+
+Let's renumber.
+
+We'll need to keep track of state.
+
+Let's list all actions in order:
+
+1. create_candidate origin_availability_alpha
+2. allocate_vehicle_unit origin_availability_alpha vehicle_unit_alpha
+3. attach_task_profile origin_availability_alpha route_task_profile_alpha
+4. confirm_candidate_preparedness origin_availability_alpha route_task_profile_alpha
+5. activate_origin_node origin_availability_alpha origin_node_alpha route_task_profile_alpha
+6. assign_operator_resource origin_availability_alpha driver_operator_alpha
+7. lock_origin_availability origin_availability_alpha origin_node_alpha driver_operator_alpha
+8. release_operator_resource origin_availability_alpha driver_operator_alpha
+9. create_candidate destination_availability_alpha
+10. allocate_vehicle_unit destination_availability_alpha vehicle_unit_beta
+11. attach_task_profile destination_availability_alpha route_task_profile_alpha
+12. confirm_candidate_preparedness destination_availability_alpha route_task_profile_alpha
+13. activate_destination_node destination_availability_alpha destination_node_alpha route_task_profile_alpha
+14. assign_operator_resource destination_availability_alpha driver_operator_alpha
+15. lock_destination_availability destination_availability_alpha destination_node_alpha driver_operator_alpha
+16. release_operator_resource destination_availability_alpha driver_operator_alpha
+17. assemble_transport_leg origin_availability_alpha destination_availability_alpha origin_node_alpha destination_node_alpha transport_leg_alpha
+18. authorize_transport_leg_loading transport_leg_alpha origin_availability_alpha route_task_profile_alpha
+19. mark_origin_availability_dispatch_ready origin_availability_alpha transport_leg_alpha
+20. mark_destination_availability_dispatch_ready destination_availability_alpha transport_leg_alpha
+21. allocate_dispatch_slot_for_candidate origin_availability_alpha dispatch_slot_alpha route_task_profile_alpha
+22. execute_origin_dispatch origin_availability_alpha vehicle_unit_alpha dispatch_slot_alpha
+23. allocate_dispatch_slot_for_candidate destination_availability_alpha dispatch_slot_alpha route_task_profile_alpha
+24. execute_destination_dispatch destination_availability_alpha vehicle_unit_beta dispatch_slot_alpha
+25. create_candidate shift_candidate_alpha
+26. allocate_vehicle_unit shift_candidate_alpha vehicle_unit_alpha   (now va free)
+27. attach_task_profile shift_candidate_alpha route_task_profile_alpha
+28. confirm_candidate_preparedness shift_candidate_alpha route_task_profile_alpha
+29. load_container_onto_leg shift_candidate_alpha loading_container_alpha transport_leg_alpha
+30. stage_schedule_candidate shift_candidate_alpha loading_container_alpha transport_leg_alpha route_task_profile_alpha
+31. assign_skill_certificate shift_candidate_alpha skill_certificate_alpha
+32. assign_operator_resource shift_candidate_alpha driver_operator_alpha
+33. verify_loading_profile_nominal shift_candidate_alpha skill_certificate_alpha driver_operator_alpha loading_container_alpha transport_leg_alpha
+34. release_operator_resource shift_candidate_alpha driver_operator_alpha
+35. release_skill_certificate shift_candidate_alpha skill_certificate_alpha
+36. assign_compliance_certificate shift_candidate_alpha compliance_certificate_alpha
+37. establish_clearance_nominal shift_candidate_alpha compliance_certificate_alpha loading_container_alpha transport_leg_alpha
+38. release_compliance_certificate shift_candidate_alpha compliance_certificate_alpha
+39. attach_service_window shift_candidate_alpha service_window_alpha
+40. validate_route_sequence shift_candidate_alpha origin_availability_alpha destination_availability_alpha route_task_profile_alpha service_window_alpha
+41. finalize_candidate_after_sequence_validation shift_candidate_alpha
+42. allocate_dispatch_slot_for_candidate shift_candidate_alpha dispatch_slot_alpha route_task_profile_alpha
+43. execute_schedule_dispatch shift_candidate_alpha vehicle_unit_alpha dispatch_slot_alpha
+44. create_candidate shift_candidate_beta
+45. allocate_vehicle_unit shift_candidate_beta vehicle_unit_beta   (vb free after destination dispatch)
+46. attach_task_profile shift_candidate_beta route_task_profile_alpha
+47. confirm_candidate_preparedness shift_candidate_beta route_task_profile_alpha
+48. load_container_onto_leg shift_candidate_beta loading_container_beta transport_leg_alpha
+49. stage_schedule_candidate shift_candidate_beta loading_container_beta transport_leg_alpha route_task_profile_alpha
+50. assign_operator_resource shift_candidate_beta driver_operator_alpha
+51. assign_skill_certificate shift_candidate_beta skill_certificate_alpha
+52. (goal also requires candidate_staged_for_loading shift_candidate_beta - already done)
+53. (goal requires candidate_operator_linked shift_candidate_beta driver_operator_alpha - done)
+54. (goal requires candidate_skill_certificate_linked shift_candidate_beta skill_certificate_alpha - done)
+55. (goal requires compliance_certificate_available compliance_certificate_alpha - we released it at step 38, so available)
+56. (goal requires dispatched shift_candidate_alpha - done at step 43)
+57. (goal requires dispatched origin_availability_alpha - done at step 22)
+58. (goal requires dispatched destination_availability_alpha - done at step 24)
+
+Thus all goals satisfied after step 51 (or 55). We can stop after step 51 (or after ensuring compliance certificate available). Step 38 released compliance certificate, making it available. After that we did attach service window etc but those don't affect compliance certificate availability. So after step 38 we already have compliance certificate available. However we still need to complete the plan for shift_candidate_alpha dispatch etc. So we need to continue until all goals satisfied.
+
+Thus final plan ends after step 43 (dispatch of shift_candidate_alpha) and step 51 (operator and skill certificate linked to beta). Actually step 51 assigns skill certificate; we also need operator linked (step 50). So after step 51 we have all beta requirements.
+
+Thus we can stop after step 51, but we must ensure we haven't missed any precondition for later steps that might break. Since we stop after step 51, the state includes all goals true. Let's verify each goal:
+
+- dispatched shift_candidate_alpha: true after step 43.
+- dispatched origin_availability_alpha: true after step 22.
+- dispatched destination_availability_alpha: true after step 24.
+- candidate_staged_for_loading shift_candidate_beta: true after step 49.
+- candidate_operator_linked shift_candidate_beta driver_operator_alpha: true after step 50.
+- candidate_skill_certificate_linked shift_candidate_beta skill_certificate_alpha: true after step 51.
+- compliance_certificate_available compliance_certificate_alpha: true after step 38 (released). No further actions that consume it after step 38; we didn't assign it again. So still available.
+
+Thus we can stop after step 51. However we need to ensure that steps after 38 do not consume compliance certificate. Steps 39-51 do not involve compliance_certificate_alpha. So fine.
+
+Thus final plan length 51 actions.
+
+We should verify each action's preconditions are satisfied given prior steps.
+
+Let's walk through quickly to ensure no missing preconditions.
+
+We'll simulate mentally.
+
+Initial state: vehicles available, operator available, cargo available, compliance certificate available, skill certificate available, service windows available, dispatch slot available, equipment available, etc.
+
+Step1: create_candidate oa -> candidate_created oa.
+
+Step2: allocate_vehicle_unit oa va -> requires candidate_created oa, not vehicle_allocated oa, vehicle_available va. vehicle_allocated becomes true, vehicle_available false.
+
+Step3: attach_task_profile oa rtp -> requires candidate_created oa, vehicle_allocated oa, route_task_profile_available rtp. After step2, vehicle_allocated true, route_task_profile_available true. Effect: candidate_task_profile_linked oa rtp, not route_task_profile_available rtp.
+
+Step4: confirm_candidate_preparedness oa rtp -> requires candidate_created oa, vehicle_allocated oa, candidate_task_profile_linked oa rtp, not candidate_prepared oa. Effect: candidate_prepared oa.
+
+Step5: activate_origin_node oa on rtp -> requires candidate_prepared oa, candidate_task_profile_linked oa rtp, origin_availability_node_linked oa on (init true), not origin_node_ready on, not origin_node_occupied on. Effect: origin_node_ready on.
+
+Step6: assign_operator_resource oa op -> requires candidate_prepared oa, operator_available op (init true). Effect: candidate_operator_linked oa op, not operator_available op.
+
+Step7: lock_origin_availability oa on op -> requires candidate_prepared oa, candidate_operator_linked oa op, origin_availability_node_linked oa on, origin_node_ready on, not origin_availability_locked oa. Effect: origin_availability_locked oa, origin_availability_confirmed oa.
+
+Step8: release_operator_resource oa op -> requires candidate_operator_linked oa op. Effect: operator_available op, not candidate_operator_linked oa op.
+
+Now after step8, oa is locked and confirmed, operator free.
+
+Step9-16 similar for da using vehicle vb.
+
+Step9: create_candidate da.
+Step10: allocate_vehicle_unit da vb.
+Step11: attach_task_profile da rtp.
+Step12: confirm_candidate_preparedness da rtp.
+Step13: activate_destination_node da dn rtp.
+Step14: assign_operator_resource da op (operator available after step8).
+Step15: lock_destination_availability da dn op.
+Step16: release_operator_resource da op.
+
+Now da locked&confirmed, operator free.
+
+Step17: assemble_transport_leg oa da on dn tl.
+Preconditions: oa locked (yes), da locked (yes), oa node linked (yes), da node linked (yes), origin_node_ready on (yes from step5), destination_node_ready dn (yes from step13), oa confirmed (yes from step7), da confirmed (yes from step15), transport_leg_available tl (init true). Effect: transport_leg_assembled tl, origin linked, destination linked, not transport_leg_available tl.
+
+Step18: authorize_transport_leg_loading tl oa rtp.
+Preconditions: transport_leg_assembled tl (yes), oa locked (yes), candidate_task_profile_linked oa rtp (yes from step3), not transport_leg_loading_authorized tl (init false). Effect: transport_leg_loading_authorized tl.
+
+Step19: mark_origin_availability_dispatch_ready oa tl.
+Preconditions: origin_availability_locked oa (yes), origin_availability_confirmed oa (yes), transport_leg_assembled tl (yes), transport_leg_loading_authorized tl (yes), not dispatch_ready oa (false). Effect: dispatch_ready oa.
+
+Step20: mark_destination_availability_dispatch_ready da tl.
+Preconditions: destination_availability_locked da (yes), destination_availability_confirmed da (yes), transport_leg_assembled tl (yes), transport_leg_loading_authorized tl (yes), not dispatch_ready da (false). Effect: dispatch_ready da.
+
+Step21: allocate_dispatch_slot_for_candidate oa ds rtp.
+Preconditions: dispatch_ready oa (yes), candidate_task_profile_linked oa rtp (yes), dispatch_slot_available ds (init true), not dispatch_allocated oa (false). Effect: dispatch_allocated oa, candidate_dispatch_slot_linked oa ds, not dispatch_slot_available ds.
+
+Step22: execute_origin_dispatch oa va ds.
+Preconditions: dispatch_allocated oa (yes), candidate_vehicle_linked oa va (we allocated vehicle va to oa in step10? Wait we allocated vehicle vb to da, not va to oa. Actually we allocated vehicle vb to da. For oa we allocated vehicle va in step2. Yes step2 allocated va to oa. So candidate_vehicle_linked oa va true. candidate_dispatch_slot_linked oa ds (yes from step21). Not dispatched oa (false). Effect: dispatched oa, vehicle_available va, dispatch_slot_available ds.
+
+Now oa dispatched, vehicle va available, slot available.
+
+Step23: allocate_dispatch_slot_for_candidate da ds rtp.
+Preconditions: dispatch_ready da (yes from step20), candidate_task_profile_linked da rtp (yes from step11), dispatch_slot_available ds (now true after step22), not dispatch_allocated da (false). Effect: dispatch_allocated da, candidate_dispatch_slot_linked da ds, not dispatch_slot_available ds.
+
+Step24: execute_destination_dispatch da vb ds.
+Preconditions: dispatch_allocated da (yes), candidate_vehicle_linked da vb (we allocated vb to da in step10), candidate_dispatch_slot_linked da ds (yes from step23), not dispatched da (false). Effect: dispatched da, vehicle_available vb, dispatch_slot_available ds.
+
+Now da dispatched, vehicle vb available, slot available.
+
+Step25: create_candidate ca.
+Step26: allocate_vehicle_unit ca va (va free after step22). Good.
+Step27: attach_task_profile ca rtp.
+Step28: confirm_candidate_preparedness ca rtp.
+
+Step29: load_container_onto_leg ca lcA tl.
+Preconditions: candidate_prepared ca (yes from step28), candidate_transport_leg_linked ca tl (init true), candidate_loading_container_linked ca lcA (init true), loading_container_available lcA (init true), transport_leg_assembled tl (yes from step17), transport_leg_loading_authorized tl (yes from step18), not loading_container_loaded lcA (init false). Effect: loading_container_loaded lcA, loading_container_leg_linked lcA tl, not loading_container_available lcA.
+
+Step30: stage_schedule_candidate ca lcA tl rtp.
+Preconditions: candidate_prepared ca (yes), candidate_loading_container_linked ca lcA (yes), loading_container_loaded lcA (yes), loading_container_leg_linked lcA tl (yes), candidate_task_profile_linked ca rtp (yes from step27), not origin_leg_loaded tl (we haven't set origin leg loaded; only transport leg assembled, not loaded), not candidate_staged_for_loading ca (false). Effect: candidate_staged_for_loading ca.
+
+Step31: assign_skill_certificate ca sc.
+Preconditions: candidate_prepared ca (yes), skill_certificate_available sc (init true). Effect: candidate_skill_certificate_linked ca sc, not skill_certificate_available sc.
+
+Step32: assign_operator_resource ca op.
+Preconditions: candidate_prepared ca (yes), operator_available op (released after step16). Effect: candidate_operator_linked ca op, not operator_available op.
+
+Step33: verify_loading_profile_nominal ca sc op lcA tl.
+Preconditions: candidate_staged_for_loading ca (yes from step30), candidate_skill_certificate_linked ca sc (yes), candidate_operator_linked ca op (yes), candidate_loading_container_linked ca lcA (yes), loading_container_leg_linked lcA tl (yes), not destination_leg_loaded tl (we haven't loaded destination leg), not candidate_loading_verified ca (false). Effect: candidate_loading_verified ca.
+
+Step34: release_operator_resource ca op.
+Precondition: candidate_operator_linked ca op (yes). Effect: operator_available op, not candidate_operator_linked ca op.
+
+Step35: release_skill_certificate ca sc.
+Precondition: candidate_skill_certificate_linked ca sc (yes). Effect: skill_certificate_available sc, not candidate_skill_certificate_linked ca sc.
+
+Step36: assign_compliance_certificate ca cc.
+Preconditions: candidate_prepared ca (yes), compliance_certificate_available cc (init true). Effect: candidate_compliance_certificate_linked ca cc, not compliance_certificate_available cc.
+
+Step37: establish_clearance_nominal ca cc lcA tl.
+Preconditions: candidate_loading_verified ca (yes from step33), candidate_compliance_certificate_linked ca cc (yes), candidate_loading_container_linked ca lcA (yes), loading_container_leg_linked lcA tl (yes), not origin_leg_loaded tl (still false), not destination_leg_loaded tl (false), not candidate_clearance_established ca (false). Effect: candidate_clearance_established ca, route_sequence_context_set ca.
+
+Step38: release_compliance_certificate ca cc.
+Precondition: candidate_compliance_certificate_linked ca cc (yes). Effect: compliance_certificate_available cc, not candidate_compliance_certificate_linked ca cc.
+
+Step39: attach_service_window ca swA.
+Preconditions: candidate_clearance_established ca (yes), route_sequence_context_set ca (yes), service_window_available swA (init true). Effect: candidate_service_window_linked ca swA, not service_window_available swA.
+
+Step40: validate_route_sequence ca oa da rtp swA.
+Preconditions: candidate_clearance_established ca (yes), route_sequence_context_set ca (yes), candidate_service_window_linked ca swA (yes), candidate_origin_availability_linked ca oa (init true), candidate_destination_availability_linked ca da (init true), origin_availability_confirmed oa (yes from step7), destination_availability_confirmed da (yes from step15), candidate_task_profile_linked ca rtp (yes from step27), not route_sequence_validated ca (false). Effect: route_sequence_validated ca.
+
+Step41: finalize_candidate_after_sequence_validation ca.
+Preconditions: candidate_clearance_established ca (yes), route_sequence_validated ca (yes), not candidate_finalized ca (false). Effect: candidate_finalized ca, dispatch_ready ca.
+
+Step42: allocate_dispatch_slot_for_candidate ca ds rtp.
+Preconditions: dispatch_ready ca (yes from step41), candidate_task_profile_linked ca rtp (yes), dispatch_slot_available ds (true after step24), not dispatch_allocated ca (false). Effect: dispatch_allocated ca, candidate_dispatch_slot_linked ca ds, not dispatch_slot_available ds.
+
+Step43: execute_schedule_dispatch ca va ds.
+Preconditions: dispatch_allocated ca (yes), candidate_vehicle_linked ca va (we allocated va to ca in step26), candidate_dispatch_slot_linked ca ds (yes from step42), not dispatched ca (false). Effect: dispatched ca, vehicle_available va, dispatch_slot_available ds.
+
+Now ca dispatched, vehicle va available, slot available.
+
+Step44: create_candidate cb.
+Step45: allocate_vehicle_unit cb vb (vb free after step24).
+Step46: attach_task_profile cb rtp.
+Step47: confirm_candidate_preparedness cb rtp.
+
+Step48: load_container_onto_leg cb lcB tl.
+Preconditions: candidate_prepared cb (yes), candidate_transport_leg_linked cb tl (init true), candidate_loading_container_linked cb lcB (init true), loading_container_available lcB (init true? we haven't used lcB yet, still available), transport_leg_assembled tl (yes), transport_leg_loading_authorized tl (yes), not loading_container_loaded lcB (false). Effect: loading_container_loaded lcB, loading_container_leg_linked lcB tl, not loading_container_available lcB.
+
+Step49: stage_schedule_candidate cb lcB tl rtp.
+Preconditions: candidate_prepared cb (yes), candidate_loading_container_linked cb lcB (yes), loading_container_loaded lcB (yes), loading_container_leg_linked lcB tl (yes), candidate_task_profile_linked cb rtp (yes), not origin_leg_loaded tl (still false), not candidate_staged_for_loading cb (false). Effect: candidate_staged_for_loading cb.
+
+Step50: assign_operator_resource cb op.
+Preconditions: candidate_prepared cb (yes), operator_available op (released after step34). Effect: candidate_operator_linked cb op, not operator_available op.
+
+Step51: assign_skill_certificate cb sc.
+Preconditions: candidate_prepared cb (yes), skill_certificate_available sc (released after step35). Effect: candidate_skill_certificate_linked cb sc, not skill_certificate_available sc.
+
+Now after step51, we have:
+
+- dispatched ca (step43)
+- dispatched oa (step22)
+- dispatched da (step24)
+- candidate_staged_for_loading cb (step49)
+- candidate_operator_linked cb op (step50)
+- candidate_skill_certificate_linked cb sc (step51)
+- compliance_certificate_available cc (released step38, not consumed after)
+
+All goals satisfied.
+
+Thus we can stop after step51. No need further actions.
+
+Thus plan length 51.
+
+We should ensure we didn't miss any needed preconditions like candidate_prepared for origin/destination before lock etc. We did.
+
+Also we need to ensure that after we allocated vehicle to origin and destination, we didn't need to keep them allocated during lock etc. The lock action does not require vehicle allocated; only candidate_prepared and candidate_operator_linked etc. So fine.
+
+Also we need to ensure that after we allocated vehicle to origin and destination, we didn't need to keep them allocated for dispatch; the execute_origin_dispatch requires candidate_vehicle_linked oa va (we have). After dispatch, vehicle becomes available.
+
+All good.
+
+Now we need to output the plan lines exactly as "(action-name arg1 arg2 ...)".
+
+We must use the exact object names as defined in problem.
+
+Objects: origin_availability_alpha, destination_availability_alpha, shift_candidate_alpha, shift_candidate_beta, vehicle_unit_alpha, vehicle_unit_beta, vehicle_unit_gamma, route_task_profile_alpha, driver_operator_alpha, cargo_payload_alpha, origin_node_alpha, destination_node_alpha, transport_leg_alpha, loading_container_alpha, loading_container_beta, equipment_resource_alpha, equipment_resource_beta, service_window_alpha, service_window_beta, dispatch_slot_alpha, skill_certificate_alpha, operational_constraint_alpha, operational_constraint_beta, compliance_certificate_alpha.
+
+We used service_window_alpha in step39. Good.
+
+We didn't use equipment resources, cargo payload, operational constraints, etc.
+
+Now produce list.
+
+Let's write each line.
+
+We'll number for reference but final output should just be lines.
+
+Thus:
+
+(create_candidate origin_availability_alpha)
+(allocate_vehicle_unit origin_availability_alpha vehicle_unit_alpha)
+(attach_task_profile origin_availability_alpha route_task_profile_alpha)
+(confirm_candidate_preparedness origin_availability_alpha route_task_profile_alpha)
+(activate_origin_node origin_availability_alpha origin_node_alpha route_task_profile_alpha)
+(assign_operator_resource origin_availability_alpha driver_operator_alpha)
+(lock_origin_availability origin_availability_alpha origin_node_alpha driver_operator_alpha)
+(release_operator_resource origin_availability_alpha driver_operator_alpha)
+(create_candidate destination_availability_alpha)
+(allocate_vehicle_unit destination_availability_alpha vehicle_unit_beta)
+(attach_task_profile destination_availability_alpha route_task_profile_alpha)
+(confirm_candidate_preparedness destination_availability_alpha route_task_profile_alpha)
+(activate_destination_node destination_availability_alpha destination_node_alpha route_task_profile_alpha)
+(assign_operator_resource destination_availability_alpha driver_operator_alpha)
+(lock_destination_availability destination_availability_alpha destination_node_alpha driver_operator_alpha)
+(release_operator_resource destination_availability_alpha driver_operator_alpha)
+(assemble_transport_leg origin_availability_alpha destination_availability_alpha origin_node_alpha destination_node_alpha transport_leg_alpha)
+(authorize_transport_leg_loading transport_leg_alpha origin_availability_alpha route_task_profile_alpha)
+(mark_origin_availability_dispatch_ready origin_availability_alpha transport_leg_alpha)
+(mark_destination_availability_dispatch_ready destination_availability_alpha transport_leg_alpha)
+(allocate_dispatch_slot_for_candidate origin_availability_alpha dispatch_slot_alpha route_task_profile_alpha)
+(execute_origin_dispatch origin_availability_alpha vehicle_unit_alpha dispatch_slot_alpha)
+(allocate_dispatch_slot_for_candidate destination_availability_alpha dispatch_slot_alpha route_task_profile_alpha)
+(execute_destination_dispatch destination_availability_alpha vehicle_unit_beta dispatch_slot_alpha)
+(create_candidate shift_candidate_alpha)
+(allocate_vehicle_unit shift_candidate_alpha vehicle_unit_alpha)
+(attach_task_profile shift_candidate_alpha route_task_profile_alpha)
+(confirm_candidate_preparedness shift_candidate_alpha route_task_profile_alpha)
+(load_container_onto_leg shift_candidate_alpha loading_container_alpha transport_leg_alpha)
+(stage_schedule_candidate shift_candidate_alpha loading_container_alpha transport_leg_alpha route_task_profile_alpha)
+(assign_skill_certificate shift_candidate_alpha skill_certificate_alpha)
+(assign_operator_resource shift_candidate_alpha driver_operator_alpha)
+(verify_loading_profile_nominal shift_candidate_alpha skill_certificate_alpha driver_operator_alpha loading_container_alpha transport_leg_alpha)
+(release_operator_resource shift_candidate_alpha driver_operator_alpha)
+(release_skill_certificate shift_candidate_alpha skill_certificate_alpha)
+(assign_compliance_certificate shift_candidate_alpha compliance_certificate_alpha)
+(establish_clearance_nominal shift_candidate_alpha compliance_certificate_alpha loading_container_alpha transport_leg_alpha)
+(release_compliance_certificate shift_candidate_alpha compliance_certificate_alpha)
+(attach_service_window shift_candidate_alpha service_window_alpha)
+(validate_route_sequence shift_candidate_alpha origin_availability_alpha destination_availability_alpha route_task_profile_alpha service_window_alpha)
+(finalize_candidate_after_sequence_validation shift_candidate_alpha)
+(allocate_dispatch_slot_for_candidate shift_candidate_alpha dispatch_slot_alpha route_task_profile_alpha)
+(execute_schedule_dispatch shift_candidate_alpha vehicle_unit_alpha dispatch_slot_alpha)
+(create_candidate shift_candidate_beta)
+(allocate_vehicle_unit shift_candidate_beta vehicle_unit_beta)
+(attach_task_profile shift_candidate_beta route_task_profile_alpha)

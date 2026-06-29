@@ -1,20 +1,84 @@
-(allocate_vehicle_unit destination_availability_alpha vehicle_unit_beta)
-(attach_task_profile origin_availability_alpha route_task_profile_alpha)
-(confirm_candidate_preparedness origin_availability_alpha route_task_profile_alpha)
-(detach_task_profile origin_availability_alpha route_task_profile_alpha)
-(attach_task_profile destination_availability_alpha route_task_profile_alpha)
-(confirm_candidate_preparedness destination_availability_alpha route_task_profile_alpha)
-(detach_task_profile destination_availability_alpha route_task_profile_alpha)
-(attach_task_profile origin_availability_alpha route_task_profile_alpha)
-(load_origin_payload origin_availability_alpha origin_node_alpha cargo_payload_alpha)
-(unload_origin_payload origin_availability_alpha origin_node_alpha route_task_profile_alpha cargo_payload_alpha)
-(detach_task_profile origin_availability_alpha route_task_profile_alpha)
-(attach_task_profile destination_availability_alpha route_task_profile_alpha)
-(load_destination_payload destination_availability_alpha destination_node_alpha cargo_payload_alpha)
-(unload_destination_payload destination_availability_alpha destination_node_alpha route_task_profile_alpha cargo_payload_alpha)
-(assemble_transport_leg origin_availability_alpha destination_availability_alpha origin_node_alpha destination_node_alpha transport_leg_alpha)
-(detach_task_profile destination_availability_alpha route_task_profile_alpha)
-(attach_task_profile origin_availability_alpha route_task_profile_alpha)
-(authorize_transport_leg_loading transport_leg_alpha origin_availability_alpha route_task_profile_alpha)
-(execute_schedule_dispatch shift_candidate_alpha vehicle_unit_gamma dispatch_slot_alpha)
-(release_compliance_certificate shift_candidate_alpha compliance_certificate_alpha)
+The user asks: “You are a deterministic PDDL planner. Goal: produce a valid plan that achieves the goal state with minimal number of actions. Rules: ... Output ONLY the plan. One action per line. ... The plan MUST be complete. Do NOT stop early. Continue until the goal is achieved. Stop immediately after the last action. Constraints: The plan MUST be valid under the domain and problem. The plan SHOULD be optimal. Use only actions defined in the domain. Respect all preconditions and effects."
+
+We need to output a plan as a list of actions (each line formatted as "(action-name arg1 ...)" presumably without any spaces between parentheses? The output format: "Each line must contain exactly one action in PDDL format. Also use brackets "()":" So we should output something like:
+
+```
+(action-name arg1 arg2 ...)
+...
+```
+
+No extra text, no empty lines.
+
+We must produce a plan from the given problem to achieve the goal. The domain is fairly complex. We need to find a minimal sequence of actions that results in all goal predicates true, given the initial state.
+
+The initial state is fully specified. The goal predicates are:
+
+- (candidate_prepared destination_availability_alpha)
+- (candidate_prepared origin_availability_alpha)
+- (candidate_task_profile_linked origin_availability_alpha route_task_profile_alpha)
+- (candidate_vehicle_linked destination_availability_alpha vehicle_unit_beta)
+- (compliance_certificate_available compliance_certificate_alpha)
+- (destination_availability_confirmed destination_availability_alpha)
+- (destination_availability_locked destination_availability_alpha)
+- (destination_node_occupied destination_node_alpha)
+- (destination_node_ready destination_node_alpha)
+- (dispatch_slot_available dispatch_slot_alpha)
+- (dispatched shift_candidate_alpha)
+- (origin_availability_confirmed origin_availability_alpha)
+- (origin_availability_locked origin_water?? Actually origin_availability_locked origin_availability_alpha)
+- (origin_node_occupied origin_node_alpha)
+- (origin_node_ready origin_node_alpha)
+- (transport_leg_assembled transport_leg_alpha)
+- (transport_leg_destination_linked transport_leg_alpha destination_node_alpha)
+- (transport_leg_loading_authorized transport_leg_alpha)
+- (transport_leg_origin_linked transport_leg_alpha origin_node_alpha)
+- (vehicle_allocated destination_availability_alpha)
+- (vehicle_available vehicle_unit_gamma)
+
+Also there is (vehicle_available vehicle_unit_gamma) needed, etc.
+
+We need to produce a plan. Let’s try to reason.
+
+Initial state summary:
+
+We have multiple objects:
+
+- origin_availability_alpha (type origin_candidate_availability)
+- destination_availability_alpha (type destination_candidate_availability)
+- shift_candidate_alpha (type schedule_candidate)
+- shift_candidate_beta (type schedule_candidate)
+- vehicle_unit_alpha (type vehicle_unit)
+- vehicle_unit_beta (type vehicle_unit)
+- vehicle_unit_gamma (type vehicle_unit)
+- route_task_profile_alpha (type route_task_profile)
+- driver_operator_alpha (type operator_resource)
+- cargo_payload_alpha (type cargo_payload)
+- origin_node_alpha (type origin_node)
+- destination_node_alpha (type destination_node)
+  (Note: same name but types differ)
+- transport_leg_alpha (type transport_leg)
+- loading_container_alpha (type loading_container)
+- loading_container_beta (type loading_container)
+- equipment_resource_alpha (type equipment_resource)
+- equipment_resource_beta (type equipment_resource)
+- service_window_alpha (type service_window)
+- service_window_beta (type service_window)
+- dispatch_slot_alpha (type dispatch_slot)
+- skill_certificate_alpha (type skill_certificate)
+- operational_constraint_alpha (type operational_constraint)
+- operational_constraint_beta (type operational_constraint)
+- compliance_certificate_alpha (type compliance_certificate)
+
+All other derived predicates are present.
+
+We must fulfill many constraints.
+
+Goal includes:
+
+1. candidate_prepared destination_availability_alpha. To be prepared, we need (candidate_created ?candidate), (vehicle_allocated ?candidate), (candidate_task_profile_linked ?candidate ?route_task_profile). So for destination_availability_alpha, we need:
+
+- candidate_created destination_availability_alpha: already true in init? We have (candidate_created destination_availability_alpha). Yes.
+- vehicle_allocated destination_availability_alpha: need to allocate a vehicle unit to destination_availability_alpha. The init has (vehicle_allocated origin_availability_alpha) and (vehicle_allocated shift_candidate_alpha). Vehicle_unit_beta is currently available. We can allocate vehicle_unit_beta to destination_availability_alpha using allocate_vehicle_unit. That will set (vehicle_allocated destination_availability_alpha), (candidate_vehicle_linked destination_availability_alpha vehicle_unit_beta), and (not vehicle_available vehicle_unit_beta).
+- candidate_task_profile_linked destination_availability_alpha route_task_profile_alpha: we need to attach route_task_profile to destination_availability_alpha. This requires attach_task_profile (requires candidate_created, vehicle_allocated, route_task_profile_available). Currently route_task_profile_available is true. So we can call attach_task_profile with candidate = destination_availability_alpha, route_task_profile = route_task_profile_alpha. That will set candidate_task_profile_linked and remove route_task_profile_available. So after this action, route_task_profile_available becomes false.
+
+Then confirm_candidate_preparedness(destination_availability

@@ -17,7 +17,6 @@ MODEL_ALIASES = {
     "deepseek/deepseek-v4-flash": "deepseek/deepseek-v4-flash",
     "gpt-oss-120b": "openai/gpt-oss-120b",
     "nemotron-3-super": "nvidia/nemotron-3-super-120b-a12b",
-    "qwen/qwen3-235b-a22b-thinking-2507": "qwen/qwen3-235b-a22b-thinking-2507",
 }
 MODEL_CONFIG = {
     "cohere/north-mini-code:free": {
@@ -58,21 +57,7 @@ MODEL_CONFIG = {
         "temperature": 1.0,
         "top_p": 0.95,
         "provider": {
-            "order": ["dekallm"],
-            "allow_fallbacks": False,
-            "quantizations": ["fp8"],
-        },
-    },
-    "qwen/qwen3-235b-a22b-thinking-2507": {
-        "max_tokens": None,
-        "supports_reasoning": True,
-        "reasoning_effort": "medium",
-        "temperature": 0.6,
-        "top_p": 0.95,
-        "top_k": 20,
-        "min_p": 0,
-        "provider": {
-            "order": ["wandb"],
+            "order": ["deepinfra"],
             "allow_fallbacks": False,
             "quantizations": ["bf16"],
         },
