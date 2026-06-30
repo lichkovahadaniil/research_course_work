@@ -20,13 +20,6 @@ from token_usage import build_token_usage_from_payload
 
 BASELINE_ORDER = "canonical"
 COMPARED_ORDERS = [order for order in VARIANT_NAMES if order != BASELINE_ORDER]
-SECONDARY_BASELINE_ORDER = "plan_front"
-SECONDARY_COMPARED_ORDERS = [
-    order for order in VARIANT_NAMES if order != SECONDARY_BASELINE_ORDER
-]
-EXTRA_ORDER_COMPARISONS = [
-    (SECONDARY_BASELINE_ORDER, order) for order in SECONDARY_COMPARED_ORDERS
-]
 DATA_ROOT = PROJECT_ROOT / "materials" / "logistics" / "alpha"
 OUTPUT_DIR = Path(__file__).resolve().parent
 
@@ -655,14 +648,6 @@ def comparison_label(result: dict[str, Any]) -> str:
 
 
 def markdown_report(model_name: str, payload: dict[str, Any]) -> str:
-    extra_comparison_text = (
-        ", ".join(
-            f"`{baseline}` vs `{compared}`"
-            for baseline, compared in payload["extra_order_comparisons"]
-        )
-        if payload["extra_order_comparisons"]
-        else "none available"
-    )
     lines = [
         f"# Statistical Tests: {model_name}",
         "",
@@ -670,7 +655,6 @@ def markdown_report(model_name: str, payload: dict[str, Any]) -> str:
         "Canonical compared orders: "
         + ", ".join(f"`{order_name}`" for order_name in payload["compared_orders"])
         + ".",
-        f"`plan_front` baseline comparisons: {extra_comparison_text}.",
         "",
         "Pairing unit for McNemar and numeric tests: `(problem, run)` within this model. Conditional reachability is summarized per order among executable plans only.",
         "",
@@ -827,11 +811,6 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
         for order_name in COMPARED_ORDERS
         if order_name in available_orders
     ]
-    extra_order_comparisons = [
-        (baseline_order, compared_order)
-        for baseline_order, compared_order in EXTRA_ORDER_COMPARISONS
-        if baseline_order in available_orders and compared_order in available_orders
-    ]
 
     binary_tests: list[dict[str, Any]] = []
     for metric in BINARY_METRICS:
@@ -843,15 +822,6 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
         for result, p_holm in zip(metric_results, adjusted):
             result["p_value_holm"] = p_holm
         binary_tests.extend(metric_results)
-
-        extra_metric_results = [
-            mcnemar_result(rows, model_name, metric, baseline_order, compared_order)
-            for baseline_order, compared_order in extra_order_comparisons
-        ]
-        extra_adjusted = holm_adjust(extra_metric_results, "p_value")
-        for result, p_holm in zip(extra_metric_results, extra_adjusted):
-            result["p_value_holm"] = p_holm
-        binary_tests.extend(extra_metric_results)
 
     conditional_binary_tests: list[dict[str, Any]] = []
     for metric in CONDITIONAL_BINARY_METRICS:
@@ -870,21 +840,6 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
             result["p_value_holm"] = p_holm
         conditional_binary_tests.extend(metric_results)
 
-        extra_metric_results = [
-            conditional_binary_result(
-                rows,
-                model_name,
-                metric,
-                baseline_order,
-                compared_order,
-            )
-            for baseline_order, compared_order in extra_order_comparisons
-        ]
-        extra_adjusted = holm_adjust(extra_metric_results, "p_value")
-        for result, p_holm in zip(extra_metric_results, extra_adjusted):
-            result["p_value_holm"] = p_holm
-        conditional_binary_tests.extend(extra_metric_results)
-
     numeric_tests: list[dict[str, Any]] = []
     for metric in NUMERIC_METRICS:
         metric_results = [
@@ -898,21 +853,6 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
             result["p_value_sign_flip_permutation_holm"] = p_perm_holm
         numeric_tests.extend(metric_results)
 
-        extra_metric_results = [
-            numeric_result(rows, model_name, metric, baseline_order, compared_order)
-            for baseline_order, compared_order in extra_order_comparisons
-        ]
-        extra_adjusted_t = holm_adjust(extra_metric_results, "p_value_t_test")
-        extra_adjusted_perm = holm_adjust(extra_metric_results, "p_value_sign_flip_permutation")
-        for result, p_t_holm, p_perm_holm in zip(
-            extra_metric_results,
-            extra_adjusted_t,
-            extra_adjusted_perm,
-        ):
-            result["p_value_t_test_holm"] = p_t_holm
-            result["p_value_sign_flip_permutation_holm"] = p_perm_holm
-        numeric_tests.extend(extra_metric_results)
-
     problem_level_tests: list[dict[str, Any]] = []
     for metric in BINARY_METRICS:
         problem_level_tests.extend(
@@ -920,10 +860,10 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
                 rows,
                 model_name,
                 metric,
-                baseline_order,
-                compared_order,
+                BASELINE_ORDER,
+                order_name,
             )
-            for baseline_order, compared_order in extra_order_comparisons
+            for order_name in compared_orders
         )
     for metric in CONDITIONAL_BINARY_METRICS:
         problem_level_tests.extend(
@@ -931,10 +871,10 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
                 rows,
                 model_name,
                 metric,
-                baseline_order,
-                compared_order,
+                BASELINE_ORDER,
+                order_name,
             )
-            for baseline_order, compared_order in extra_order_comparisons
+            for order_name in compared_orders
         )
     for metric in NUMERIC_METRICS:
         problem_level_tests.extend(
@@ -942,10 +882,10 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
                 rows,
                 model_name,
                 metric,
-                baseline_order,
-                compared_order,
+                BASELINE_ORDER,
+                order_name,
             )
-            for baseline_order, compared_order in extra_order_comparisons
+            for order_name in compared_orders
         )
 
     return {
@@ -957,13 +897,12 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
         "orders": VARIANT_NAMES,
         "baseline_order": BASELINE_ORDER,
         "compared_orders": compared_orders,
-        "extra_order_comparisons": extra_order_comparisons,
         "method_summary": {
             "binary": "Exact McNemar test on paired binary outcomes.",
             "conditional_binary": "Conditional reachability uses per-order executable-plan denominators and Fisher's exact test on those counts.",
             "numeric": "Paired t-test and paired sign-flip permutation test.",
             "problem_level": "Runs are averaged per problem before a paired sign-flip permutation test; bootstrap CI resamples problems.",
-            "multiple_comparisons": "Holm adjustment is applied separately within each baseline comparison group for each model/metric/test family.",
+            "multiple_comparisons": "Holm adjustment is applied across canonical-baseline comparisons for each model/metric/test family.",
         },
         "metric_definitions": {
             **BINARY_METRICS,
@@ -989,8 +928,7 @@ def main() -> None:
         "",
         "This folder contains reproducible order-effect tests for the saved local `llm_result.json` files. No model/API calls are made.",
         "",
-        "McNemar and numeric tests are paired within each model by `(problem, run)`: primary tests match each compared order with `canonical`, and the second pass matches each other order with `plan_front`.",
-        "The `plan_front` baseline comparisons are included when both orders in the pair are present.",
+        "McNemar and numeric tests are paired within each model by `(problem, run)`: each compared order is matched with `canonical`.",
         "Problem-level tests average runs inside each problem before testing the paired problem differences.",
         "",
         "Binary metrics use exact McNemar tests. Conditional reachability uses executable-plan denominators per order and Fisher's exact test. Numeric metrics use paired t-tests and sign-flip permutation tests.",

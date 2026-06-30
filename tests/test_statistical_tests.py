@@ -1,5 +1,6 @@
 from materials.stats.run_statistical_tests import (
     analysis_plan_length,
+    build_model_payload,
     conditional_binary_result,
     fisher_exact_two_sided_p,
 )
@@ -92,3 +93,49 @@ def test_analysis_plan_length_matches_graph_semantics() -> None:
         {"parsable": False, "reachability": False, "plan_length": 7}
     ) is None
     assert analysis_plan_length({}) is None
+
+
+def test_model_payload_uses_only_canonical_as_baseline() -> None:
+    def row(order: str, reachability: float, plan_length: float) -> dict:
+        return {
+            "model": "test-model",
+            "problem": "p1",
+            "run": 1,
+            "order": order,
+            "reachability": reachability,
+            "executability": 1.0,
+            "conditional_reachability": reachability,
+            "non_executable_failure": 0.0,
+            "plan_length": plan_length,
+            "optimality_ratio": 1.0,
+            "first_failure_step": None,
+            "prompt_tokens": 100.0,
+            "completion_tokens": 50.0,
+            "reasoning_completion_tokens": 25.0,
+            "raw_completion_tokens": 25.0,
+            "total_tokens": 150.0,
+            "duration_sec": 3.0,
+        }
+
+    payload = build_model_payload(
+        [
+            row("canonical", 1.0, 10.0),
+            row("disp_1", 0.0, 12.0),
+            row("plan_front", 1.0, 9.0),
+        ],
+        "test-model",
+    )
+
+    assert "extra_order_comparisons" not in payload
+    assert payload["compared_orders"] == ["disp_1", "plan_front"]
+    for family in (
+        "binary_tests",
+        "conditional_binary_tests",
+        "numeric_tests",
+        "problem_level_tests",
+    ):
+        assert {result["baseline_order"] for result in payload[family]} == {"canonical"}
+
+    assert {
+        result["compared_order"] for result in payload["problem_level_tests"]
+    } == {"disp_1", "plan_front"}

@@ -2,8 +2,7 @@
 
 This folder contains reproducible order-effect tests for the saved local `llm_result.json` files. No model/API calls are made.
 
-McNemar and numeric tests are paired within each model by `(problem, run)`: primary tests match each compared order with `canonical`, and the second pass matches each other order with `plan_front`.
-The `plan_front` baseline comparisons are included when both orders in the pair are present.
+McNemar and numeric tests are paired within each model by `(problem, run)`: each compared order is matched with `canonical`.
 Problem-level tests average runs inside each problem before testing the paired problem differences.
 
 Binary metrics use exact McNemar tests. Conditional reachability uses executable-plan denominators per order and Fisher's exact test. Numeric metrics use paired t-tests and sign-flip permutation tests.
