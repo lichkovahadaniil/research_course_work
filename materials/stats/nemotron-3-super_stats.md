@@ -188,3 +188,29 @@ Runs are averaged within each problem first. The test unit is the problem, not a
 | duration_sec | canonical -> plan_front | 20 | 92.5973 | 90.3637 | -2.2336 | [-11.1567, 5.7982] | 0.624119 |
 | duration_sec | canonical -> plan_back | 20 | 92.5973 | 215.4544 | 122.8571 | [99.0635, 153.6856] | 0.000002 |
 | duration_sec | canonical -> plan_scatter | 20 | 92.5973 | 86.2852 | -6.3121 | [-14.8834, 1.5527] | 0.157701 |
+
+## Disp 3 vs All Orders
+
+`reachability` is the primary metric. Each non-`disp_3` order is used as the baseline and `disp_3` is the compared order; negative mean differences mean lower reachability for `disp_3`.
+
+Primary test: problem-level paired sign-flip permutation test with bootstrap 95% CI over problems. Holm adjustment is applied across the six problem-level comparisons within this model.
+
+| comparison | n problems | baseline mean | disp_3 mean | mean diff | 95% CI | p perm | p perm Holm | empirical best baseline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| canonical -> disp_3 | 20 | 0.1667 | 0.1533 | -0.0133 | [-0.0500, 0.0100] | 1.000000 | 1.000000 |  |
+| disp_1 -> disp_3 | 20 | 0.1933 | 0.1533 | -0.0400 | [-0.0767, -0.0133] | 0.015625 | 0.093750 |  |
+| disp_2 -> disp_3 | 20 | 0.1900 | 0.1533 | -0.0367 | [-0.0767, -0.0067] | 0.062500 | 0.250000 |  |
+| plan_front -> disp_3 | 20 | 0.2233 | 0.1533 | -0.0700 | [-0.1467, -0.0133] | 0.031250 | 0.156250 | yes |
+| plan_back -> disp_3 | 20 | 0.1867 | 0.1533 | -0.0333 | [-0.1000, 0.0133] | 0.406250 | 0.812500 |  |
+| plan_scatter -> disp_3 | 20 | 0.2100 | 0.1533 | -0.0567 | [-0.1233, -0.0067] | 0.062500 | 0.250000 |  |
+
+Additional analysis: run-level exact McNemar tests on paired `(problem, run)` reachability outcomes.
+
+| comparison | n | baseline | disp_3 | b | c | risk diff | matched OR | p | p Holm |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| canonical -> disp_3 | 300 | 0.1667 | 0.1533 | 12 | 16 | -0.0133 | 0.7500 | 0.571588 | 0.571588 |
+| disp_1 -> disp_3 | 300 | 0.1933 | 0.1533 | 5 | 17 | -0.0400 | 0.2941 | 0.016901 | 0.050903 |
+| disp_2 -> disp_3 | 300 | 0.1900 | 0.1533 | 3 | 14 | -0.0367 | 0.2143 | 0.012726 | 0.050903 |
+| plan_front -> disp_3 | 300 | 0.2233 | 0.1533 | 4 | 25 | -0.0700 | 0.1600 | 0.000104 | 0.000622 |
+| plan_back -> disp_3 | 300 | 0.1867 | 0.1533 | 10 | 20 | -0.0333 | 0.5000 | 0.098737 | 0.197474 |
+| plan_scatter -> disp_3 | 300 | 0.2100 | 0.1533 | 4 | 21 | -0.0567 | 0.1905 | 0.000911 | 0.004553 |

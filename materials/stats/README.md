@@ -4,6 +4,7 @@ This folder contains reproducible order-effect tests for the saved local `llm_re
 
 McNemar and numeric tests are paired within each model by `(problem, run)`: each compared order is matched with `canonical`.
 Problem-level tests average runs inside each problem before testing the paired problem differences.
+A separate `disp_3` degradation check uses `reachability` only: each non-`disp_3` order is compared against `disp_3`, with the problem-level sign-flip test as the primary test and run-level McNemar as additional evidence.
 
 Binary metrics use exact McNemar tests. Conditional reachability uses executable-plan denominators per order and Fisher's exact test. Numeric metrics use paired t-tests and sign-flip permutation tests.
 
@@ -22,6 +23,6 @@ Binary metrics use exact McNemar tests. Conditional reachability uses executable
 - `duration_sec`: saved model-call duration in seconds, when available.
 
 Files:
-- `deepseek-v4-flash_stats.json` / `deepseek-v4-flash_stats.md` / `deepseek-v4-flash_tests.csv`
-- `gpt-oss-120b_stats.json` / `gpt-oss-120b_stats.md` / `gpt-oss-120b_tests.csv`
-- `nemotron-3-super_stats.json` / `nemotron-3-super_stats.md` / `nemotron-3-super_tests.csv`
+- `deepseek-v4-flash_stats.json` / `deepseek-v4-flash_stats.md` / `deepseek-v4-flash_tests.csv` / `deepseek-v4-flash_problem_level_tests.csv` / `deepseek-v4-flash_disp3_vs_all_tests.csv`
+- `gpt-oss-120b_stats.json` / `gpt-oss-120b_stats.md` / `gpt-oss-120b_tests.csv` / `gpt-oss-120b_problem_level_tests.csv` / `gpt-oss-120b_disp3_vs_all_tests.csv`
+- `nemotron-3-super_stats.json` / `nemotron-3-super_stats.md` / `nemotron-3-super_tests.csv` / `nemotron-3-super_problem_level_tests.csv` / `nemotron-3-super_disp3_vs_all_tests.csv`

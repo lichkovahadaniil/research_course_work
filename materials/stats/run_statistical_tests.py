@@ -20,6 +20,9 @@ from token_usage import build_token_usage_from_payload
 
 BASELINE_ORDER = "canonical"
 COMPARED_ORDERS = [order for order in VARIANT_NAMES if order != BASELINE_ORDER]
+DISP3_ORDER = "disp_3"
+DISP3_BASELINE_ORDERS = [order for order in VARIANT_NAMES if order != DISP3_ORDER]
+DISP3_METRIC = "reachability"
 DATA_ROOT = PROJECT_ROOT / "materials" / "logistics" / "alpha"
 OUTPUT_DIR = Path(__file__).resolve().parent
 
@@ -259,6 +262,11 @@ def holm_adjust(results: list[dict[str, Any]], p_key: str) -> list[float | None]
         running = max(running, value)
         adjusted[index] = running
     return adjusted
+
+
+def apply_holm_adjustment(results: list[dict[str, Any]], p_key: str, output_key: str) -> None:
+    for result, adjusted_p in zip(results, holm_adjust(results, p_key)):
+        result[output_key] = adjusted_p
 
 
 def analysis_plan_length(strict: dict[str, Any]) -> int | float | None:
@@ -620,6 +628,124 @@ def problem_level_result(
     }
 
 
+def problem_level_order_summary(
+    rows: list[dict[str, Any]],
+    model_name: str,
+    metric: str,
+    order_name: str,
+) -> dict[str, Any]:
+    values_by_problem: dict[str, list[float]] = defaultdict(list)
+    for row in rows:
+        if row["model"] != model_name or row["order"] != order_name:
+            continue
+        value = row.get(metric)
+        if value is not None:
+            values_by_problem[row["problem"]].append(float(value))
+
+    problem_means = [
+        sum(values_by_problem[problem_id]) / len(values_by_problem[problem_id])
+        for problem_id in PROBLEM_IDS
+        if values_by_problem.get(problem_id)
+    ]
+    return {
+        "model": model_name,
+        "metric": metric,
+        "order": order_name,
+        "n_problems": len(problem_means),
+        "problem_level_mean": statistics.mean(problem_means)
+        if problem_means
+        else None,
+    }
+
+
+def empirical_best_order(
+    rows: list[dict[str, Any]],
+    model_name: str,
+    metric: str,
+    orders: list[str],
+) -> dict[str, Any]:
+    summaries = [
+        problem_level_order_summary(rows, model_name, metric, order_name)
+        for order_name in orders
+    ]
+    available = [
+        summary for summary in summaries if summary["problem_level_mean"] is not None
+    ]
+    if not available:
+        return {
+            "order": None,
+            "problem_level_mean": None,
+            "summaries": summaries,
+        }
+
+    order_position = {order_name: index for index, order_name in enumerate(VARIANT_NAMES)}
+    best = max(
+        available,
+        key=lambda summary: (
+            summary["problem_level_mean"],
+            -order_position.get(summary["order"], len(VARIANT_NAMES)),
+        ),
+    )
+    return {
+        "order": best["order"],
+        "problem_level_mean": best["problem_level_mean"],
+        "summaries": summaries,
+    }
+
+
+def disp3_problem_level_results(
+    rows: list[dict[str, Any]],
+    model_name: str,
+    baseline_orders: list[str],
+    available_orders: list[str],
+) -> list[dict[str, Any]]:
+    best = empirical_best_order(rows, model_name, DISP3_METRIC, available_orders)
+    results = [
+        problem_level_result(
+            rows,
+            model_name,
+            DISP3_METRIC,
+            baseline_order,
+            DISP3_ORDER,
+        )
+        for baseline_order in baseline_orders
+    ]
+    apply_holm_adjustment(
+        results,
+        "p_value_sign_flip_permutation",
+        "p_value_sign_flip_permutation_holm",
+    )
+    for result in results:
+        result["comparison_family"] = "disp3_vs_all_problem_level"
+        result["empirical_best_order"] = best["order"]
+        result["empirical_best_mean"] = best["problem_level_mean"]
+        result["is_empirical_best_comparison"] = (
+            result["baseline_order"] == best["order"]
+        )
+    return results
+
+
+def disp3_run_level_mcnemar_results(
+    rows: list[dict[str, Any]],
+    model_name: str,
+    baseline_orders: list[str],
+) -> list[dict[str, Any]]:
+    results = [
+        mcnemar_result(
+            rows,
+            model_name,
+            DISP3_METRIC,
+            baseline_order,
+            DISP3_ORDER,
+        )
+        for baseline_order in baseline_orders
+    ]
+    apply_holm_adjustment(results, "p_value", "p_value_holm")
+    for result in results:
+        result["comparison_family"] = "disp3_vs_all_run_level_mcnemar"
+    return results
+
+
 def format_number(value: Any, digits: int = 4) -> str:
     if value is None:
         return "NA"
@@ -641,6 +767,13 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer = csv.DictWriter(handle, fieldnames=keys)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def strip_problem_records(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {key: value for key, value in result.items() if key != "problem_records"}
+        for result in rows
+    ]
 
 
 def comparison_label(result: dict[str, Any]) -> str:
@@ -798,6 +931,75 @@ def markdown_report(model_name: str, payload: dict[str, Any]) -> str:
                 )
                 + " |"
             )
+    lines.extend(
+        [
+            "",
+            "## Disp 3 vs All Orders",
+            "",
+            "`reachability` is the primary metric. Each non-`disp_3` order is used as the baseline and `disp_3` is the compared order; negative mean differences mean lower reachability for `disp_3`.",
+            "",
+            "Primary test: problem-level paired sign-flip permutation test with bootstrap 95% CI over problems. Holm adjustment is applied across the six problem-level comparisons within this model.",
+            "",
+        ]
+    )
+    if payload["disp3_problem_level_tests"]:
+        lines.append(
+            "| comparison | n problems | baseline mean | disp_3 mean | mean diff | 95% CI | p perm | p perm Holm | empirical best baseline |"
+        )
+        lines.append(
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |"
+        )
+        for result in payload["disp3_problem_level_tests"]:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        comparison_label(result),
+                        str(result["n_problems"]),
+                        format_number(result["baseline_mean"]),
+                        format_number(result["compared_mean"]),
+                        format_number(result["mean_difference"]),
+                        f"[{format_number(result['ci95_low'])}, {format_number(result['ci95_high'])}]",
+                        format_number(result["p_value_sign_flip_permutation"], 6),
+                        format_number(result["p_value_sign_flip_permutation_holm"], 6),
+                        "yes" if result["is_empirical_best_comparison"] else "",
+                    ]
+                )
+                + " |"
+            )
+    lines.extend(
+        [
+            "",
+            "Additional analysis: run-level exact McNemar tests on paired `(problem, run)` reachability outcomes.",
+            "",
+        ]
+    )
+    if payload["disp3_run_level_mcnemar_tests"]:
+        lines.append(
+            "| comparison | n | baseline | disp_3 | b | c | risk diff | matched OR | p | p Holm |"
+        )
+        lines.append(
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+        )
+        for result in payload["disp3_run_level_mcnemar_tests"]:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        comparison_label(result),
+                        str(result["n_pairs"]),
+                        format_number(result["baseline_mean"]),
+                        format_number(result["compared_mean"]),
+                        str(result["n01_compared_only_success"]),
+                        str(result["n10_baseline_only_success"]),
+                        format_number(result["risk_difference"]),
+                        format_number(result["matched_odds_ratio"]),
+                        format_number(result["p_value"], 6),
+                        format_number(result["p_value_holm"], 6),
+                    ]
+                )
+                + " |"
+            )
     lines.append("")
     return "\n".join(lines)
 
@@ -811,6 +1013,14 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
         for order_name in COMPARED_ORDERS
         if order_name in available_orders
     ]
+    available_order_list = [
+        order_name for order_name in VARIANT_NAMES if order_name in available_orders
+    ]
+    disp3_baseline_orders = [
+        order_name
+        for order_name in DISP3_BASELINE_ORDERS
+        if DISP3_ORDER in available_orders and order_name in available_orders
+    ]
 
     binary_tests: list[dict[str, Any]] = []
     for metric in BINARY_METRICS:
@@ -818,9 +1028,7 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
             mcnemar_result(rows, model_name, metric, BASELINE_ORDER, order_name)
             for order_name in compared_orders
         ]
-        adjusted = holm_adjust(metric_results, "p_value")
-        for result, p_holm in zip(metric_results, adjusted):
-            result["p_value_holm"] = p_holm
+        apply_holm_adjustment(metric_results, "p_value", "p_value_holm")
         binary_tests.extend(metric_results)
 
     conditional_binary_tests: list[dict[str, Any]] = []
@@ -835,9 +1043,7 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
             )
             for order_name in compared_orders
         ]
-        adjusted = holm_adjust(metric_results, "p_value")
-        for result, p_holm in zip(metric_results, adjusted):
-            result["p_value_holm"] = p_holm
+        apply_holm_adjustment(metric_results, "p_value", "p_value_holm")
         conditional_binary_tests.extend(metric_results)
 
     numeric_tests: list[dict[str, Any]] = []
@@ -846,11 +1052,12 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
             numeric_result(rows, model_name, metric, BASELINE_ORDER, order_name)
             for order_name in compared_orders
         ]
-        adjusted_t = holm_adjust(metric_results, "p_value_t_test")
-        adjusted_perm = holm_adjust(metric_results, "p_value_sign_flip_permutation")
-        for result, p_t_holm, p_perm_holm in zip(metric_results, adjusted_t, adjusted_perm):
-            result["p_value_t_test_holm"] = p_t_holm
-            result["p_value_sign_flip_permutation_holm"] = p_perm_holm
+        apply_holm_adjustment(metric_results, "p_value_t_test", "p_value_t_test_holm")
+        apply_holm_adjustment(
+            metric_results,
+            "p_value_sign_flip_permutation",
+            "p_value_sign_flip_permutation_holm",
+        )
         numeric_tests.extend(metric_results)
 
     problem_level_tests: list[dict[str, Any]] = []
@@ -865,6 +1072,18 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
             )
             for order_name in compared_orders
         )
+
+    disp3_problem_level_tests = disp3_problem_level_results(
+        rows,
+        model_name,
+        disp3_baseline_orders,
+        available_order_list,
+    )
+    disp3_run_level_mcnemar_tests = disp3_run_level_mcnemar_results(
+        rows,
+        model_name,
+        disp3_baseline_orders,
+    )
     for metric in CONDITIONAL_BINARY_METRICS:
         problem_level_tests.extend(
             problem_level_result(
@@ -897,11 +1116,14 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
         "orders": VARIANT_NAMES,
         "baseline_order": BASELINE_ORDER,
         "compared_orders": compared_orders,
+        "disp3_order": DISP3_ORDER,
+        "disp3_baseline_orders": disp3_baseline_orders,
         "method_summary": {
             "binary": "Exact McNemar test on paired binary outcomes.",
             "conditional_binary": "Conditional reachability uses per-order executable-plan denominators and Fisher's exact test on those counts.",
             "numeric": "Paired t-test and paired sign-flip permutation test.",
             "problem_level": "Runs are averaged per problem before a paired sign-flip permutation test; bootstrap CI resamples problems.",
+            "disp3_vs_all": "Primary reachability test compares each non-disp_3 order against disp_3 with problem-level sign-flip tests and Holm adjustment; run-level McNemar is included as additional evidence.",
             "multiple_comparisons": "Holm adjustment is applied across canonical-baseline comparisons for each model/metric/test family.",
         },
         "metric_definitions": {
@@ -913,6 +1135,8 @@ def build_model_payload(rows: list[dict[str, Any]], model_name: str) -> dict[str
         "conditional_binary_tests": conditional_binary_tests,
         "numeric_tests": numeric_tests,
         "problem_level_tests": problem_level_tests,
+        "disp3_problem_level_tests": disp3_problem_level_tests,
+        "disp3_run_level_mcnemar_tests": disp3_run_level_mcnemar_tests,
     }
 
 
@@ -930,6 +1154,7 @@ def main() -> None:
         "",
         "McNemar and numeric tests are paired within each model by `(problem, run)`: each compared order is matched with `canonical`.",
         "Problem-level tests average runs inside each problem before testing the paired problem differences.",
+        "A separate `disp_3` degradation check uses `reachability` only: each non-`disp_3` order is compared against `disp_3`, with the problem-level sign-flip test as the primary test and run-level McNemar as additional evidence.",
         "",
         "Binary metrics use exact McNemar tests. Conditional reachability uses executable-plan denominators per order and Fisher's exact test. Numeric metrics use paired t-tests and sign-flip permutation tests.",
         "",
@@ -969,16 +1194,17 @@ def main() -> None:
         )
         write_csv(
             OUTPUT_DIR / f"{slug}_problem_level_tests.csv",
-            [
-                {
-                    key: value
-                    for key, value in result.items()
-                    if key != "problem_records"
-                }
-                for result in payload["problem_level_tests"]
-            ],
+            strip_problem_records(payload["problem_level_tests"]),
         )
-        index_lines.append(f"- `{json_path.name}` / `{md_path.name}` / `{csv_path.name}`")
+        write_csv(
+            OUTPUT_DIR / f"{slug}_disp3_vs_all_tests.csv",
+            strip_problem_records(payload["disp3_problem_level_tests"])
+            + payload["disp3_run_level_mcnemar_tests"],
+        )
+        index_lines.append(
+            f"- `{json_path.name}` / `{md_path.name}` / `{csv_path.name}` / "
+            f"`{slug}_problem_level_tests.csv` / `{slug}_disp3_vs_all_tests.csv`"
+        )
 
     (OUTPUT_DIR / "README.md").write_text("\n".join(index_lines) + "\n", encoding="utf-8")
     print(f"Wrote statistical test outputs to {OUTPUT_DIR}")
