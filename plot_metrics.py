@@ -121,6 +121,12 @@ def _load_result(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _analysis_plan_length(strict: dict) -> int | float | None:
+    if not strict or strict.get("parsable") is False or not bool(strict.get("reachability")):
+        return None
+    return strict.get("plan_length")
+
+
 def _build_record(
     *,
     domain_name: str,
@@ -147,7 +153,7 @@ def _build_record(
         "variant": variant_name,
         "run": run_id,
         "model": model_name,
-        "plan_length": strict.get("plan_length"),
+        "plan_length": _analysis_plan_length(strict),
         "executability": float(executability),
         "reachability": float(reachability),
         "conditional_reachability": float(reachability) if executability else None,

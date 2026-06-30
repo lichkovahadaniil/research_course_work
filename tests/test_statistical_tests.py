@@ -1,4 +1,5 @@
 from materials.stats.run_statistical_tests import (
+    analysis_plan_length,
     conditional_binary_result,
     fisher_exact_two_sided_p,
 )
@@ -78,3 +79,16 @@ def test_fisher_exact_two_sided_p_is_symmetric() -> None:
 
     assert p_value == fisher_exact_two_sided_p(1, 5, 8, 2)
     assert 0.0 <= p_value <= 1.0
+
+
+def test_analysis_plan_length_matches_graph_semantics() -> None:
+    assert analysis_plan_length(
+        {"parsable": True, "reachability": True, "plan_length": 7}
+    ) == 7
+    assert analysis_plan_length(
+        {"parsable": True, "reachability": False, "plan_length": 7}
+    ) is None
+    assert analysis_plan_length(
+        {"parsable": False, "reachability": False, "plan_length": 7}
+    ) is None
+    assert analysis_plan_length({}) is None

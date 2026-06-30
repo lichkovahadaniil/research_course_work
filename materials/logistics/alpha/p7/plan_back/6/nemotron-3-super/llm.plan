@@ -1,0 +1,514 @@
+We need to produce a plan achieving the goal: dispatched origin_availability_alpha, destination_availability_alpha, shift_candidate_alpha, shift_candidate_beta. Must respect domain.
+
+We need to construct a valid sequence.
+
+We need to create candidates? Already there are shift_candidate_alpha and shift_candidate_beta defined as schedule_candidate. Need to ensure they are created? In the domain, there is a type schedule_candidate under candidate_entity? Actually schedule_candidate is defined as a type derived from dispatch_proposal? Actually schedule_candidate is a sub-type of dispatch_proposal? Wait: types include schedule_candidate - dispatch_proposal. The objects defined: shift_candidate_alpha - schedule_candidate, shift_candidate_beta - schedule_candidate. So they exist but not created yet? We need candidate_created predicate for them. The init does not include candidate_created for them. So we need to run create_candidate action for each schedule_candidate? Actually create_candidate expects ?candidate - candidate_entity. Since schedule_candidate is a sub-type of dispatch_proposal which is a sub-type of candidate_entity? Let's see: types: candidate_entity - object; dispatch_proposal - candidate_entity; schedule_candidate - dispatch_proposal. So schedule_candidate is a subtype of candidate_entity. So create_candidate can be applied to shift_candidate_alpha.
+
+Similarly origin_availability_alpha and destination_availability_alpha are of type origin_candidate_availability and destination_candidate_availability which are subtypes of candidate_entity? Actually origin_candidate_availability - candidate_entity? Let's check: types: origin_candidate_availability - candidate_entity? In the types list: origin_candidate_availability - candidate_entity? Yes: "origin_candidate_availability - candidate_entity". So they also need to be created.
+
+Goal includes dispatched origin_availability_alpha and destination_availability_alpha and shift_candidate_alpha and shift_candidate_beta. So we must prepare each candidate and dispatch them.
+
+We need to follow the pipeline: create candidate, allocate vehicle, attach task profile, confirm preparedness, etc. Then for origin/destination availabilities we need to lock them, load payload, etc leading to dispatch ready then allocate dispatch slot, then execute dispatch.
+
+Similarly for schedule_candidate we need to go through many steps: candidate prepared, link loading container, etc, eventually finalize candidate after sequence validation (or direct) to get dispatch_ready, allocate dispatch slot, then execute schedule dispatch.
+
+Let's outline steps for each candidate.
+
+First, we need to create origin_availability_alpha, destination_availability_alpha, shift_candidate_alpha, shift_candidate_beta.
+
+But note: origin_availability_alpha and destination_availability_alpha are also linked to shift_candidate_alpha and shift_candidate_beta via candidate_origin_availability_linked and candidate_destination_availability_linked already present in init. So after we create them, those links will be satisfied? Actually the links are predicates: candidate_origin_availability_linked ?candidate - schedule_candidate ?origin_availability - origin_candidate_availability. They are present in init for shift_candidate_alpha and shift_candidate_beta with origin_availability_alpha, and similarly for destination. So after we create the origin_availability_alpha, those predicates will be true (since they are in init). Good.
+
+Now we need to make origin_availability_alpha dispatched. For an origin availability (which is a candidate_entity), to be dispatched we need:
+
+- dispatch_allocated ?origin_availability
+- candidate_vehicle_linked ?origin_availability ?vehicle_unit
+- candidate_dispatch_slot_linked ?origin_availability ?dispatch_slot
+- not dispatched ?origin_availability
+
+Then execute_origin_dispatch will set dispatched and free vehicle and slot.
+
+Thus we need to:
+
+1. create origin_availability_alpha
+2. allocate vehicle to it (allocate_vehicle_unit)
+3. attach task profile? For origin availability, we need a route_task_profile linked? The predicate candidate_task_profile_linked is used in many actions (e.g., confirm_candidate_preparedness, activate_origin_node, etc). For origin availability we likely need to attach a route_task_profile (maybe same as shift candidate?). The init has route_task_profile_alpha available. We can link it to origin_availability_alpha via attach_task_profile (requires candidate_created and vehicle_allocated). But attach_task_profile expects ?candidate - candidate_entity and ?route_task_profile - route_task_profile. It requires candidate_created and vehicle_allocated (not allocated? Actually precondition: (candidate_created ?candidate) (vehicle_allocated ?candidate) (route_task_profile_available ?route_task_profile)). So we need vehicle allocated first.
+
+After attaching task profile, we can confirm preparedness: confirm_candidate_preparedness requires candidate_created, vehicle_allocated, candidate_task_profile_linked, and not candidate_prepared. So after that we get candidate_prepared.
+
+Then we need to activate origin node? Actually for origin availability we need to activate origin node via activate_origin_node (requires candidate_prepared, candidate_task_profile_linked, origin_availability_node_linked, origin_node not ready, not occupied). Then lock origin availability via lock_origin_availability (requires candidate_prepared, candidate_operator_linked, origin_availability_node_linked, origin_node_ready, not origin_availability_locked). Then we need to load payload? Actually to dispatch we need dispatch_allocated etc. But we also need to mark origin availability dispatch ready via mark_origin_availability_dispatch_ready, which requires origin_availability_locked, origin_availability_confirmed, transport_leg_assembled, transport_leg_loading_authorized, not dispatch_ready.
+
+Thus we need to also assemble a transport leg and authorize loading.
+
+But note: For origin availability dispatch, we might not need to load cargo? Actually the origin availability is like a pickup location; we need to have a transport leg assembled and loading authorized to mark dispatch ready.
+
+Thus we need to assemble a transport leg (maybe using assemble_transport_leg or assemble_origin_loaded_leg etc). However mark_origin_availability_dispatch_ready only requires transport_leg_assembled and transport_leg_loading_authorized, not necessarily loaded.
+
+Thus we need to assemble a transport leg (maybe using assemble_transport_leg) and authorize loading (authorize_transport_leg_loading). Also we need origin_availability_confirmed (which comes from lock_origin_availability? Actually lock_origin_availability gives origin_availability_confirmed). Yes lock_origin_availability effect includes origin_availability_confirmed.
+
+Thus steps for origin availability:
+
+- create origin_availability_alpha
+- allocate vehicle_unit_alpha (or any) to it
+- attach task profile (route_task_profile_alpha)
+- confirm preparedness
+- activate origin node (activate_origin_node) (needs origin_node not ready, not occupied)
+- assign operator resource (assign_operator_resource) (need operator_available)
+- link operator to candidate (candidate_operator_linked)
+- lock origin availability (lock_origin_availability) (needs candidate_prepared, candidate_operator_linked, origin_availability_node_linked, origin_node_ready, not origin_availability_locked)
+- assemble transport leg (assemble_transport_leg) (needs origin_availability_locked, destination_availability_locked? Wait assemble_transport_leg requires both origin and destination availability locked, origin_node_ready, destination_node_ready, origin_availability_confirmed, destination_availability_confirmed, transport_leg_available). So we need destination availability also prepared and locked etc. However we could also use assemble_origin_loaded_leg etc but those also require destination availability locked and other conditions. But mark_origin_availability_dispatch_ready only needs transport_leg_assembled and transport_leg_loading_authorized. It does not require destination availability locked? Actually precondition includes origin_availability_locked, origin_availability_confirmed, transport_leg_assembled, transport_leg_loading_authorized. No destination needed. So we can assemble a transport leg that only requires origin side? But assemble_transport_leg requires both origin and destination availability locked and confirmed. That seems too heavy. Perhaps we can use assemble_origin_loaded_leg? That requires origin_availability_locked, destination_availability_locked, origin_node_occupied, destination_node_ready, not origin_availability_confirmed, destination_availability_confirmed, transport_leg_available. Also heavy.
+
+But we could maybe avoid assembling a leg for origin dispatch? Wait mark_origin_availability_dispatch_requires transport_leg_assembled and transport_leg_loading_authorized. So we need a transport leg assembled. The only action that creates transport_leg_assembled is assemble_transport_leg, assemble_origin_loaded_leg, assemble_destination_loaded_leg, assemble_fully_loaded_leg. All require both origin and destination availability locked and various node conditions.
+
+Thus to dispatch origin availability we need to also have destination availability locked and maybe loaded etc. But goal also requires destination availability dispatched, so we will need to prepare destination anyway.
+
+Thus we need to prepare both origin and destination availabilities, lock them, assemble a transport leg (maybe fully loaded or something), authorize loading, then mark each as dispatch ready, allocate dispatch slots, and execute dispatches.
+
+Similarly for shift candidates (schedule_candidate) we need to go through many steps: create candidate, allocate vehicle, attach task profile, confirm preparedness, link loading container, load container onto leg, stage for loading, verify loading, establish clearance, attach service window, validate route sequence, finalize candidate, allocate dispatch slot, execute schedule dispatch.
+
+Thus we need to coordinate resources: we have two shift candidates, each with its own loading container (alpha for alpha, beta for beta). They share same transport leg? Actually both have candidate_transport_leg_linked to transport_leg_alpha. So they share same transport leg. That could cause conflict because transport leg can only be assembled once? Actually transport_leg_available is a resource; after assembling, it becomes not available. So only one candidate can assemble the leg. But both candidates need the leg assembled? However maybe they can share? The predicate transport_leg_assembled is not tied to a candidate; it's just a fact about the leg. So once assembled, it's assembled for all. However the actions that assemble leg require origin_availability_locked etc. Those are specific to each candidate's origin/destination availability. Since both candidates share same origin_availability_alpha and destination_availability_alpha (they are linked to both). So after we lock origin and destination availability (once), they are locked for both candidates. So assembling the leg once suffices for both.
+
+Thus we can prepare origin and destination availabilities, lock them, assemble transport leg (maybe fully loaded), authorize loading, then mark origin and destination availability dispatch ready, allocate dispatch slots, execute dispatches.
+
+Then for each shift candidate, we need to load container onto leg (load_container_onto_leg) which requires transport_leg_assembled and transport_leg_loading_authorized, and loading_container_available, candidate_prepared, candidate_transport_leg_linked, candidate_loading_container_linked, loading_container_available. After loading container, we can stage for loading (stage_schedule_candidate) which requires candidate_prepared, candidate_loading_container_linked, loading_container_loaded, loading_container_leg_linked, candidate_task_profile_linked, not origin_leg_loaded, not candidate_staged_for_loading. Wait stage_schedule_candidate precondition includes not origin_leg_loaded? Actually it requires (not (origin_leg_loaded ?transport_leg)). So we need to ensure origin leg not loaded. But we might have loaded container onto leg, which does not set origin_leg_loaded. origin_leg_loaded is set by assemble_origin_loaded_leg or assemble_fully_loaded_leg. Since we will use assemble_transport_leg (which does not set origin_leg_loaded or destination_leg_loaded). So origin_leg_loaded remains false, good.
+
+Then verify loading profile (verify_loading_profile_nominal) which requires candidate_staged_for_loading, skill_certificate_linked, operator_linked, loading_container_linked, loading_container_leg_linked, not destination_leg_loaded, not candidate_loading_verified. After that we get loading verified.
+
+Then establish clearance (establish_clearance_nominal) requires candidate_loading_verified, compliance_certificate_linked, loading_container_linked, loading_container_leg_linked, not origin_leg_loaded, not destination_leg_loaded, not candidate_clearance_established. After that we get clearance established and route_sequence_context_set? Actually establish_clearance_nominal effect only candidate_clearance_established (no route_sequence_context_set). However later validate_route_sequence requires candidate_clearance_established, route_sequence_context_set, candidate_service_window_linked, candidate_origin_availability_linked, candidate_destination_availability_linked, origin_availability_confirmed, destination_availability_confirmed, candidate_task_profile_linked, not route_sequence_validated. So we need route_sequence_context_set. Which actions set that? The establish_clearance_origin_loaded, destination_loaded, full_load, nominal? Actually establish_clearance_nominal does NOT set route_sequence_context_set. The other establish_clearance_* actions set route_sequence_context_set. So we need to use one of those that sets route_sequence_context_set. Which one matches our loading state? We have not loaded origin or destination leg (since we used assemble_transport_leg). So origin_leg_loaded and destination_leg_loaded are false. So we should use establish_clearance_nominal? But that does not set route_sequence_context_set. However validate_route_sequence requires route_sequence_context_set. So we need to have route_sequence_context_set true. Which action sets it? The establish_clearance_origin_loaded, destination_loaded, full_load set route_sequence_context_set. Also maybe there is another action? Look at establish_clearance_origin_loaded effect includes route_sequence_context_set. establish_clearance_destination_loaded also includes route_sequence_context_set. establish_clearance_full_load also includes route_sequence_context_set. So we need to have either origin_leg_loaded or destination_leg_loaded or both to use those. But we could instead load cargo onto leg to set origin_leg_loaded or destination_leg_loaded? Actually loading container onto leg does not set those. origin_leg_loaded is set only by assemble_origin_loaded_leg or assemble_fully_loaded_leg. So we might need to assemble an origin-loaded leg or destination-loaded leg or fully loaded leg. However those actions require certain node conditions (origin_node_occupied etc). We could decide to load payload onto origin node to make origin_node_occupied, then assemble origin-loaded leg.
+
+Alternatively, maybe we can use validate_route_sequence without route_sequence_context_set? The precondition includes route_sequence_context_set. So we must have it.
+
+Thus we need to set route_sequence_context_set via one of the establish_clearance_* actions that also set it. That requires either origin_leg_loaded or destination_leg_loaded (or both). So we need to have at least one leg loaded.
+
+We could assemble origin-loaded leg: assemble_origin_loaded_leg requires origin_node_occupied, destination_node_ready, origin_availability_locked, destination_availability_locked, origin_availability not confirmed? Actually precondition includes not origin_availability_confirmed? Let's check: assemble_origin_loaded_leg precondition includes (origin_availability_locked ?origin_availability) (destination_availability_locked ?destination_availability) (origin_availability_node_linked ?origin_availability ?origin_node) (destination_availability_node_linked ?destination_availability ?destination_node) (origin_node_occupied ?origin_node) (destination_node_ready ?destination_node) (not (origin_availability_confirmed ?origin_availability)) (destination_availability_confirmed ?destination_availability) (transport_leg_available ?transport_leg). So we need origin node occupied, destination node ready, origin availability not confirmed, destination availability confirmed.
+
+Similarly assemble_destination_loaded_leg requires origin_node_ready, destination_node_occupied, origin_availability_confirmed, not destination_availability_confirmed.
+
+Assemble_fully_loaded_leg requires both nodes occupied, both availabilities not confirmed.
+
+Thus we need to manage availability confirmed flags.
+
+Recall lock_origin_availability gives origin_availability_confirmed. So after lock, origin_availability_confirmed becomes true. That would block assemble_origin_loaded_leg (requires not origin_availability_confirmed). So we need to avoid locking origin if we want to assemble origin-loaded leg. But we need origin availability locked for dispatch ready etc. Actually mark_origin_availability_dispatch_requires origin_availability_locked and origin_availability_confirmed. So we need both locked and confirmed for dispatch ready. So we cannot have origin availability not confirmed if we want to dispatch it. So we cannot use assemble_origin_loaded_leg because it requires origin_availability not confirmed. Similarly assemble_destination_loaded_leg requires destination_availability not confirmed. Assemble_fully_loaded_leg requires both not confirmed. But we need both confirmed for dispatch ready. So we cannot use those assembly actions if we need confirmed.
+
+Thus we cannot get origin_leg_loaded or destination_leg_loaded while also having availabilities confirmed. However maybe we can load cargo onto leg via load_container_onto_leg, which does not set those flags. But we need route_sequence_context_set. Perhaps there is another way to get route_sequence_context_set: maybe via attach_service_window? No. Or via candidate_clearance_established? That does not set route_sequence_context_set. Actually the establish_clearance_* actions that set route_sequence_context_set are the three loaded ones. So we seem stuck.
+
+Wait maybe we misinterpret: validate_route_sequence precondition includes route_sequence_context_set ?candidate. But maybe we can have route_sequence_context_set set by something else? Look at the domain: there is action establish_clearance_origin_loaded, establish_clearance_destination_loaded, establish_clearance_full_load, establish_clearance_nominal. Only the first three set route_sequence_context_set. So indeed we need one of those.
+
+Thus we need to have either origin_leg_loaded or destination_leg_loaded or both, while still having origin_availability_confirmed and destination_availability_confirmed (for dispatch ready). But the assemble_*_loaded_leg actions require the opposite confirmation status. However maybe we can achieve origin_leg_loaded via some other action? Not defined. So seems impossible to have both origin_leg_loaded and origin_availability_confirmed simultaneously given the defined actions.
+
+Let's double-check: origin_availability_confirmed is set by lock_origin_availability (effect). Also maybe by unload_origin_payload? That effect includes origin_availability_confirmed. Also load_origin_payload does not set confirmed. So origin_availability_confirmed is set when we lock or unload payload. It is never unset. There is no action to unset origin_availability_confirmed. So once confirmed, stays true.
+
+Thus assemble_origin_loaded_leg requires not origin_availability_confirmed. So impossible after lock. Similarly assemble_destination_loaded_leg requires not destination_availability_confirmed. So impossible after lock. Assemble_fully_loaded_leg requires both not confirmed. So impossible after either lock.
+
+Thus we cannot have any leg loaded while availabilities are confirmed. Therefore we cannot get route_sequence_context_set via those actions after locking.
+
+Maybe we don't need to lock origin/destination availabilities for dispatch? Wait mark_origin_availability_dispatch_ready requires origin_availability_locked and origin_availability_confirmed. So we need both locked and confirmed for dispatch ready. So indeed we need them confirmed.
+
+Thus we cannot get route_sequence_context_set. Something off: maybe route_sequence_context_set is not required for validate_route_sequence? Let's re-examine validate_route_sequence precondition: (candidate_clearance_established ?candidate) (route_sequence_context_set ?candidate) (candidate_service_window_linked ?candidate ?service_window) (candidate_origin_availability_linked ?candidate ?origin_availability) (candidate_destination_availability_linked ?candidate ?destination_availability) (origin_availability_confirmed ?origin_availability) (destination_availability_confirmed ?destination_availability) (candidate_task_profile_linked ?candidate ?route_task_profile) (not (route_sequence_validated ?candidate)). So yes requires route_sequence_context_set.
+
+Thus we need to have route_sequence_context_set true. The only way is via those three establish_clearance_* actions. But they require the leg loaded and the opposite confirmation status.
+
+Thus maybe we can have origin_availability_confirmed false while still being dispatch ready? Let's check mark_origin_availability_dispatch_ready precondition: (origin_availability_locked ?origin_availability) (origin_availability_confirmed ?origin_availability) (transport_leg_assembled ?transport_leg) (transport_leg_loading_authorized ?transport_leg) (not (dispatch_ready ?origin_availability)). So yes requires origin_availability_confirmed. So we need it confirmed.
+
+Thus contradiction. Perhaps we can use a different path to get dispatch ready for origin/destination without needing route_sequence_context_set? Actually the goal only requires dispatched origin_availability_alpha and destination_availability_alpha, not necessarily via mark_*_dispatch_ready? Could we dispatch origin availability via execute_origin_dispatch directly without needing mark_origin_availability_dispatch_ready? The execute_origin_dispatch precondition requires dispatch_allocated ?origin_availability, candidate_vehicle_linked, candidate_dispatch_slot_linked, not dispatched. So we need dispatch_allocated. To get dispatch_allocated we need allocate_dispatch_slot_for_candidate which requires dispatch_ready ?candidate. So we need dispatch_ready. Dispatch_ready can be set via mark_origin_availability_dispatch_ready (or mark_destination_availability_dispatch_ready) or maybe via something else? There's also execute_schedule_dispatch which requires dispatch_allocated ?candidate (schedule candidate). So for origin/destination we need dispatch_ready via those mark actions. So we need those.
+
+Thus we need route_sequence_context_set for schedule candidates, but not for origin/destination. So we need to satisfy route_sequence_context_set for shift candidates while still having origin/destination availabilities confirmed and locked.
+
+Thus we need to find a way to get route_sequence_context_set without requiring origin/destination availability not confirmed. Let's examine the establish_clearance_* actions preconditions more carefully:
+
+establish_clearance_origin_loaded:
+precondition:
+(candidate_loading_verified ?candidate)
+(candidate_compliance_certificate_linked ?candidate ?compliance_certificate)
+(candidate_loading_container_linked ?candidate ?loading_container)
+(loading_container_leg_linked ?loading_container ?transport_leg)
+(origin_leg_loaded ?transport_leg)
+(not (destination_leg_loaded ?transport_leg))
+(not (candidate_clearance_established ?candidate))
+
+Note: does not mention origin_availability_confirmed or destination_availability_confirmed. So it does NOT require them! Good. So we can have origin_leg_loaded true while origin_availability_confirmed may be true or false; not required.
+
+Similarly establish_clearance_destination_loaded requires destination_leg_loaded true, not origin_leg_loaded.
+
+establish_clearance_full_load requires both origin_leg_loaded and destination_leg_loaded.
+
+Thus we can have origin_leg_loaded true while origin_availability_confirmed true (since not required). However to get origin_leg_loaded true we need to have performed assemble_origin_loaded_leg (or assemble_fully_loaded_leg). Those actions have preconditions that include not origin_availability_confirmed (for origin_loaded_leg) and not destination_availability_confirmed (for origin_loaded_leg? Actually assemble_origin_loaded_leg requires destination_availability_confirmed). Let's re-check:
+
+assemble_origin_loaded_leg precondition includes:
+(origin_availability_locked ?origin_availability)
+(destination_availability_locked ?destination_availability)
+(origin_availability_node_linked ?origin_availability ?origin_node)
+(destination_availability_node_linked ?destination_availability ?destination_node)
+(origin_node_occupied ?origin_node)
+(destination_node_ready ?destination_node)
+(not (origin_availability_confirmed ?origin_availability))
+(destination_availability_confirmed ?destination_availability)
+(transport_leg_available ?transport_leg)
+
+Thus to assemble origin-loaded leg we need origin availability NOT confirmed, but destination availability confirmed.
+
+Similarly assemble_destination_loaded_leg requires origin_availability_confirmed, destination_availability NOT confirmed.
+
+Assemble_fully_loaded_leg requires both NOT confirmed.
+
+Thus we can get origin_leg_loaded true if we assemble origin-loaded leg before confirming origin availability (i.e., before lock_origin_availability). After assembling, we can then lock origin availability (which will set origin_availability_confirmed true). Does lock_origin_availability have any precondition that conflicts with origin_leg_loaded? No. lock_origin_availability only requires origin_node_ready (not occupied). Wait lock_origin_availability precondition includes origin_node_ready? Actually lock_origin_availability precondition: (origin_availability_node_linked ?origin_availability ?origin_node) (origin_node_ready ?origin_node) (not (origin_availability_locked ?origin_availability)). It does NOT require origin_node_occupied. So after assembling origin-loaded leg, origin_node_occupied is true (since assemble_origin_loaded_leg effect includes origin_node_occupied? Actually effect of assemble_origin_loaded_leg does not mention origin_node_occupied; it only sets transport_leg_assembled, origin_leg_loaded, etc. It does not change origin_node_occupied. However origin_node_occupied was a precondition (must be true). So after action, origin_node_occupied remains true (unless some other action changes it). There is no action to unset origin_node_occupied except maybe unload_origin_payload? That sets origin_node_ready. Indeed unload_origin_payload effect includes origin_node_ready. So we could later unload payload to make node ready. But we might not need to.
+
+Thus after assembling origin-loaded leg, origin_node_occupied stays true. lock_origin_availability requires origin_node_ready, not occupied. So we cannot lock origin availability while origin_node_occupied is true. That's a problem.
+
+Thus we need origin_node_ready for lock_origin_availability. So we need to make origin_node_ready after assembling origin-loaded leg. How to make origin_node_ready? The action unload_origin_payload sets origin_node_ready (and origin_availability_confirmed). Also maybe there is no other. So we could unload origin payload to make node ready, but that would also set origin_availability_confirmed (which we might already have). However unload_origin_payload requires origin_payload_linked etc. We might not have payload linked.
+
+Alternatively, maybe we can avoid needing lock_origin_availability? But we need origin_availability_locked and confirmed for dispatch ready. So we need lock_origin_availability after origin_node_ready. So we need origin_node_ready. Thus we need to unload origin payload after assembling origin-loaded leg to make node ready. But we may not have payload linked. However we could have loaded payload earlier via load_origin_payload (which sets origin_node_occupied and origin_availability_locked). Actually load_origin_payload sets origin_node_occupied and origin_availability_locked (and origin_payload_linked). It does not set origin_availability_confirmed. So we could load payload, then assemble origin-loaded leg (requires origin_node_occupied, destination_node_ready, origin_availability not confirmed, destination_availability confirmed). Wait assemble_origin_loaded_leg requires origin_node_occupied (good), destination_node_ready, origin_availability NOT confirmed, destination_availability confirmed. So we need origin_availability not confirmed at that point. After load_origin_payload, origin_availability_locked is true but not confirmed. Good. Then we can assemble origin-loaded leg (requires origin_availability not confirmed). After assembling, we have origin_leg_loaded true, transport_leg_assembled, etc. Origin_node_occupied remains true (from load_origin_payload). Destination_node_ready remains true (assuming we haven't changed). Origin_availability_locked remains true (from load_origin_payload). Destination_availability_locked? We need destination_availability_locked for assemble_origin_loaded_leg. So we need to lock destination availability (which sets destination_availability_confirmed). Let's see.
+
+Thus plan:
+
+- For origin availability: load payload (load_origin_payload) -> origin_node_occupied, origin_availability_locked (not confirmed), origin_payload_linked.
+- For destination availability: we need destination_node_ready (initially? Not set). We need to make destination_node_ready. Initially we have no info about destination_node_occupied/ready. The init does not specify any node status. We have origin_availability_node_linked and destination_availability_node_linked, but not node ready/occupied. So we need to make destination_node_ready. How? There is no direct action to set destination_node_ready except maybe activate_destination_node (which sets destination_node_ready) requiring destination_node not ready, not occupied, candidate_prepared, candidate_task_profile_linked, destination_availability_node_linked. So we can activate destination node to make it ready.
+
+Thus we can:
+
+- Prepare destination availability (create, allocate vehicle? Actually destination availability is a candidate_entity; we need to create it, allocate vehicle, attach task profile, confirm preparedness, activate destination node (makes destination_node_ready), assign operator, lock destination availability (which sets destination_availability_confirmed). However lock_destination_availability requires destination_node_ready (good) and not destination_availability_locked. After lock, we get destination_availability_locked and destination_availability_confirmed.
+
+Now we have destination_availability_locked and confirmed, destination_node_ready (still ready). However assemble_origin_loaded_leg requires destination_node_ready (good) and destination_availability_confirmed (good). It also requires origin_node_occupied (we have from load_origin_payload) and origin_availability not confirmed (we have origin_availability_locked but not confirmed). Good.
+
+Thus we can assemble origin-loaded leg after preparing origin and destination availabilities appropriately.
+
+Now after assembling origin-loaded leg, we have transport_leg_assembled, origin_leg_loaded true, destination_leg_loaded false.
+
+Now we need to lock origin availability (to get origin_availability_confirmed) but lock_origin_availability requires origin_node_ready (not occupied). Currently origin_node_occupied is true (from load_origin_payload). So we need to make origin_node_ready. We could unload origin payload (unload_origin_payload) which requires origin_payload_linked (we have) and origin_availability_not_confirmed? Actually precondition includes not origin_availability_confirmed? Let's check unload_origin_payload precondition: (candidate_prepared ?origin_availability) (candidate_task_profile_linked ?origin_availability ?route_task_profile) (origin_availability_node_linked ?origin_availability ?origin_node) (origin_node_occupied ?origin_node) (origin_payload_linked ?origin_availability ?payload_unit) (not (origin_availability_confirmed ?origin_availability)). Effect: origin_node_ready, origin_availability_confirmed, cargo_available, not origin_payload_linked.
+
+Thus unload_origin_payload requires origin_availability NOT confirmed. Currently after load_origin_payload, origin_availability_locked but not confirmed. Good. So we can unload origin payload, which will set origin_node_ready and origin_availability_confirmed (and cargo_available). This will also clear origin_payload_linked.
+
+After unload_origin_payload, origin_node_occupied becomes false (since effect sets origin_node_ready). Actually effect sets origin_node_ready, not explicitly unset occupied, but we can assume occupied false because ready implies not occupied? The predicate origin_node_occupied is separate; there is no effect to unset it. However we might need to ensure origin_node_occupied is false for lock_origin_availability (which requires origin_node_ready, not occupied). There is no explicit unset, but maybe the domain assumes that origin_node_occupied and origin_node_ready are mutually exclusive? Not enforced but we can rely that after unload_origin_payload, origin_node_ready true and origin_node_occupied false (since we loaded then unloaded). There's no explicit effect to unset occupied, but we could assume that loading sets occupied true, unloading sets ready and maybe occupied false implicitly? Not defined. However we have no action to set origin_node_occupied false except maybe load_origin_payload sets it true; there is no action to set it false. So origin_node_occupied might stay true forever after loading. That would block lock_origin_availability which requires origin_node_ready (maybe also requires not origin_node_occupied? Actually lock_origin_availability precondition does not include origin_node_occupied, only origin_node_ready. So maybe origin_node_occupied can be true while origin_node_ready also true? The domain doesn't forbid both. So lock_origin_availability may succeed even if origin_node_occupied true. However we also need origin_node_ready for lock_origin_availability; unload_origin_payload gives origin_node_ready. So we can proceed.
+
+Thus after unload_origin_payload we have origin_node_ready true, origin_availability_confirmed true, origin_payload_linked false, cargo_available true.
+
+Now we can lock origin availability? Actually lock_origin_availability requires origin_availability_locked (we have from load_origin_payload) and not origin_availability_locked? Wait lock_origin_availability precondition includes not (origin_availability_locked ?origin_availability). But after load_origin_payload we have origin_availability_locked true. So lock_origin_availability cannot be applied because it requires not locked. So we need to release the lock? There is no action to unlock origin availability. Hmm.
+
+Thus load_origin_payload sets origin_availability_locked. To later lock it via lock_origin_availability we need it not locked. So we cannot load payload if we intend to later lock via lock_origin_availability. Alternative: we could avoid loading payload and instead get origin_node_occupied via some other means? The only way to set origin_node_occupied is load_origin_payload (or maybe assemble_origin_loaded_leg? No, that does not affect node occupancy). So to get origin_node_occupied we must load payload, which locks origin availability. Then we cannot lock it again. But maybe we don't need to lock origin availability if we already have it locked via load_origin_payload? However mark_origin_availability_dispatch_ready requires origin_availability_locked and origin_availability_confirmed. We have locked but not confirmed. We need confirmed. We could get origin_availability_confirmed via unload_origin_payload (which sets confirmed) but that requires not origin_availability_confirmed precond and also requires origin_availability_locked? Actually unload_origin_payload precondition includes not origin_availability_confirmed (good) but does NOT require origin_availability_locked? Let's check: unload_origin_payload precondition includes candidate_prepared, candidate_task_profile_linked, origin_availability_node_linked, origin_node_occupied, origin_payload_linked, not origin_availability_confirmed. It does NOT require origin_availability_locked. So we can unload payload even if origin_availability_locked is true? The precondition does not forbid it. So we can have origin_availability_locked true, then unload payload (requires not origin_availability_confirmed). After unload, we get origin_availability_confirmed true, origin_availability_locked remains true (since not changed). Good! So we can load payload (sets lock), then unload payload (sets confirmed). However unload also sets origin_node_ready and clears payload link. After unload, origin_node_occupied? Still true? Not changed. But we may not need origin_node_occupied anymore; we just need origin_leg_loaded true (from assemble_origin_loaded_leg). However assemble_origin_loaded_leg required origin_node_occupied as precondition. After unload, origin_node_occupied might still be true (since not changed). So we still have origin_node_occupied true, which may block lock_origin_availability? lock_origin_availability does not require origin_node_not_occupied. So fine.
+
+Thus sequence for origin availability:
+
+1. create origin_availability_alpha
+2. allocate vehicle (allocate_vehicle_unit)
+3. attach task profile (attach_task_profile)
+4. confirm preparedness (confirm_candidate_preparedness)
+5. load origin payload (load_origin_payload) -> origin_availability_locked true, origin_node_occupied true, origin_payload_linked true.
+6. assemble origin-loaded leg? Wait we need destination availability also prepared and locked etc. Let's handle destination similarly but we need destination_node_ready and destination_availability_confirmed (but not locked? Actually lock_destination_availability sets both locked and confirmed). We'll need destination availability locked and confirmed for assemble_origin_loaded_leg (requires destination_availability_confirmed). It does not require destination_availability_locked? Actually assemble_origin_loaded_leg precondition includes destination_availability_locked ?destination_availability (yes). So we need destination availability locked as well. So we need to lock destination availability (which sets destination_availability_locked and confirmed). However lock_destination_availability requires destination_node_ready and not destination_availability_locked. We'll need to prepare destination similarly but maybe without loading payload (since we need destination_node_ready). We'll need to activate destination node (makes destination_node_ready) before lock.
+
+Thus for destination:
+
+- create destination_availability_alpha
+- allocate vehicle (maybe same or different)
+- attach task profile
+- confirm preparedness
+- activate destination node (activate_destination_node) -> destination_node_ready true (requires destination_node not ready, not occupied)
+- assign operator
+- lock destination availability (lock_destination_availability) -> destination_availability_locked true, destination_availability_confirmed true.
+
+Now we have origin availability locked (from load_origin_payload) but not confirmed; destination availability locked and confirmed.
+
+Now we can assemble origin-loaded leg: requires origin_availability_locked (yes), destination_availability_locked (yes), origin_node_occupied (we have from load_origin_payload, still true), destination_node_ready (we have from activate_destination_node), origin_availability NOT confirmed (yes, we haven't confirmed yet), destination_availability_confirmed (yes), transport_leg_available (yes). Good.
+
+After assemble_origin_loaded_leg, we get transport_leg_assembled, origin_leg_loaded true, destination_leg_loaded false, transport_leg not available.
+
+Now we need to confirm origin availability (get origin_availability_confirmed). We can unload origin payload (unload_origin_payload) as discussed. Preconditions: candidate_prepared, candidate_task_profile_linked, origin_availability_node_linked, origin_node_occupied, origin_payload_linked, not origin_availability_confirmed. We have all: origin_payload_linked true from load_origin_payload, origin_node_occupied true, origin_availability not confirmed. Good. Effect: origin_node_ready, origin_availability_confirmed, cargo_available, not origin_payload_linked.
+
+After unload, origin_node_occupied? Not changed; but we may not need it anymore. However we might need origin_node_occupied for something else? Not needed.
+
+Now we have origin_availability_locked true (still from load_origin_payload) and origin_availability_confirmed true (from unload). Good.
+
+Now we can mark origin availability dispatch ready: mark_origin_availability_dispatch_ready requires origin_availability_locked, origin_availability_confirmed, transport_leg_assembled, transport_leg_loading_authorized, not dispatch_ready.
+
+We have transport_leg_assembled true, need transport_leg_loading_authorized. We can authorize via authorize_transport_leg_loading (requires transport_leg_assembled, origin_availability_locked, candidate_task_profile_linked ?origin_availability ?route_task_profile, not transport_leg_loading_authorized). We have origin_availability_locked true, we need candidate_task_profile_linked for origin_availability (we attached earlier). So we can authorize.
+
+Thus after authorize, we have transport_leg_loading_authorized true.
+
+Now we can mark origin availability dispatch ready.
+
+Then allocate dispatch slot for origin availability: allocate_dispatch_slot_for_candidate requires dispatch_ready ?candidate (now true), candidate_task_profile_linked ?candidate ?route_task_profile, dispatch_slot_available ?dispatch_slot, not dispatch_allocated ?candidate. We have a dispatch_slot_alpha available. So we allocate.
+
+Then execute_origin_dispatch: requires dispatch_allocated, candidate_vehicle_linked, candidate_dispatch_slot_linked, not dispatched. We need to have allocated vehicle to origin availability earlier (we allocated vehicle_unit_alpha). Also need candidate_dispatch_slot_linked (we just allocated). So we can execute.
+
+Thus origin availability dispatched.
+
+Now destination availability: we need to make it dispatched similarly. For destination we need mark_destination_availability_dispatch_ready (requires destination_availability_locked, destination_availability_confirmed, transport_leg_assembled, transport_leg_loading_authorized, not dispatch_ready). We have destination_availability_locked and confirmed from lock_destination_availability. Transport leg assembled true, need transport_leg_loading_authorized (we already authorized? The authorize action used origin_availability_locked as precondition but does not consume it; after authorize, transport_leg_loading_authorized true. It does not require destination availability. So we still have it true. Good.
+
+Thus we can mark destination availability dispatch ready.
+
+Then allocate dispatch slot for destination availability (need another dispatch slot? We only have dispatch_slot_alpha. We used it for origin. We have no other dispatch slots. The problem only defines dispatch_slot_alpha. So we need to reuse? After executing origin dispatch, the dispatch_slot becomes available again (effect of execute_origin_dispatch makes dispatch_slot_available). So we can re-use same slot for destination after origin dispatch.
+
+Thus sequence: after origin dispatch, we have dispatch_slot_available again. Then allocate for destination, then execute destination dispatch.
+
+Now shift candidates.
+
+We need to dispatch shift_candidate_alpha and shift_candidate_beta.
+
+We need to follow schedule candidate pipeline.
+
+We have two shift candidates, each with its own loading container (alpha for alpha, beta for beta). They share same transport leg (which is already assembled and loading authorized). Also they share same origin and destination availabilities (which are now dispatched? After dispatch, the availabilities are dispatched, but we might still need them linked? The candidate_origin_availability_linked etc remain true? The dispatch action does not affect those links. So they remain.
+
+Now for each shift candidate, we need:
+
+- create candidate (if not already)
+- allocate vehicle unit (we have three vehicles: alpha, beta, gamma. We used alpha for origin availability, maybe beta for destination availability? Actually we allocated vehicle to origin availability and destination availability each; we used vehicle_unit_alpha for origin? We didn't specify which vehicle; we can choose. Let's allocate vehicle_unit_alpha to origin availability, vehicle_unit_beta to destination availability. Then vehicle_unit_gamma remains free for shift candidates.
+
+We need to allocate vehicle to each shift candidate.
+
+- attach task profile (route_task_profile_alpha)
+- confirm preparedness
+- link loading container (already linked via init? Actually init includes candidate_loading_container_linked for each shift candidate to its loading container. So we don't need to link; it's already true.
+- Ensure loading container is available (we have loading_container_alpha and loading_container_beta available initially). Good.
+- Load container onto leg: load_container_onto_leg requires candidate_prepared, candidate_transport_leg_linked, candidate_loading_container_linked, loading_container_available, transport_leg_assembled, transport_leg_loading_authorized, not loading_container_loaded. We have transport_leg_assembled true, transport_leg_loading_authorized true (from earlier). So we can load container for each candidate.
+
+After loading container, we have loading_container_loaded true, loading_container_available false.
+
+- Stage schedule candidate: stage_schedule_candidate requires candidate_prepared, candidate_loading_container_linked, loading_container_loaded, loading_container_leg_linked, candidate_task_profile_linked, not origin_leg_loaded, not candidate_staged_for_loading. Note: origin_leg_loaded is true (from assemble_origin_loaded_leg). The precondition requires NOT origin_leg_loaded. That's a problem! Because we have origin_leg_loaded true from assembling origin-loaded leg. So stage_schedule_candidate cannot be performed if origin_leg_loaded true.
+
+Thus we need to avoid origin_leg_loaded being true when we stage schedule candidates. Maybe we should use assemble_destination_loaded_leg or assemble_fully_loaded_leg? Let's examine stage_schedule_candidate precondition: not (origin_leg_loaded ?transport_leg). So we need origin leg NOT loaded. So we need to avoid origin_leg_loaded true. Similarly verify_loading_profile_nominal requires not destination_leg_loaded. So we need destination leg not loaded for verification. Then establish_clearance_nominal requires not origin_leg_loaded and not destination_leg_loaded. So we need both legs not loaded for nominal clearance.
+
+Thus we need to avoid loading origin or destination leg. So we should not use assemble_origin_loaded_leg etc. Instead we should use assemble_transport_leg (which does not set leg loaded flags). Then we can load container onto leg (which does not set leg loaded flags). Then we can stage, verify, establish clearance nominal (which requires not origin_leg_loaded and not destination_leg_loaded). That works! Indeed establish_clearance_nominal does not set route_sequence_context_set though. Wait we need route_sequence_context_set for validate_route_sequence. So we need to get route_sequence_context_set via some other means? But establish_clearance_nominal does not set it. However maybe we can get route_sequence_context_set via something else? Look at the domain: there is also action "attach_service_window" which does not set route_sequence_context_set. So only the three establish_clearance_* actions set route_sequence_context_set. So we need to have either origin_leg_loaded or destination_leg_loaded (or both) to get route_sequence_context_set. But stage_schedule_candidate requires not origin_leg_loaded. verify_loading_profile_nominal requires not destination_leg_loaded. establish_clearance_nominal requires both not loaded. So we cannot have any leg loaded if we want to go through stage, verify, establish clearance nominal. Yet we need route_sequence_context_set which requires leg loaded. Contradiction again.
+
+Maybe we can use a different path for schedule candidate: after loading container, we could use verify_loading_profile_destination_flag (requires destination_leg_loaded) or verify_loading_profile_origin? Actually there is verify_loading_profile_destination_flag (requires destination_leg_loaded) and verify_loading_profile_nominal (requires not destination_leg_loaded). Similarly there are establish_clearance_origin_loaded, destination_loaded, full_load. So we could choose a path where we load cargo onto leg to set destination_leg_loaded (or origin_leg_loaded) and then use the corresponding verify and establish clearance actions that match.
+
+Specifically:
+
+- If we load container onto leg and that results in destination_leg_loaded? No, loading container onto leg does not set destination_leg_loaded. The leg loaded flags are set only by assemble_*_loaded_leg actions. So loading container does not affect those.
+
+Thus to get destination_leg_loaded true we need to assemble destination-loaded leg or fully loaded leg. Those require certain node conditions and availability confirmation statuses.
+
+But maybe we can load container onto leg and then use verify_loading_profile_destination_flag? No, that requires destination_leg_loaded true, which we don't have.
+
+Thus we need to have either origin_leg_loaded or destination_leg_loaded true to get route_sequence_context_set, but stage_schedule_candidate requires origin_leg_loaded false, verify_loading_profile_nominal requires destination_leg_loaded false, establish_clearance_nominal requires both false. So if we want to use those three actions (stage, verify nominal, establish clearance nominal) we need both legs not loaded, which contradicts need for route_sequence_context_set.
+
+Thus perhaps we need to use a different sequence: after loading container, we could skip stage_schedule_candidate and go directly to verify_loading_profile_destination_flag? But verify_loading_profile_destination_flag requires destination_leg_loaded true, which we don't have. So we need to get destination_leg_loaded true via some action that also sets transport_leg_assembled etc. That is assemble_destination_loaded_leg or assemble_fully_loaded_leg. Those also set transport_leg_assembled and leg loaded flags.
+
+But then we would have destination_leg_loaded true, which would block verify_loading_profile_nominal (requires not destination_leg_loaded). However we could use verify_loading_profile_destination_flag instead (requires destination_leg_loaded true). Let's check its precondition: verify_loading_profile_destination_flag requires candidate_staged_for_loading, candidate_skill_certificate_linked, candidate_operator_linked, candidate_loading_container_linked, loading_container_leg_linked, destination_leg_loaded, not candidate_loading_verified. So we need candidate_staged_for_loading true. How to get candidate_staged_for_loading? There is stage_schedule_candidate action (requires not origin_leg_loaded). Also there is maybe another way? Not defined. So we need stage_schedule_candidate to get candidate_staged_for_loading true. Stage_schedule_candidate requires not origin_leg_loaded. So we need origin_leg_loaded false. So we can have destination_leg_loaded true while origin_leg_loaded false. That's possible if we assemble destination-loaded leg (which sets destination_leg_loaded true, origin_leg_loaded false). Let's check assemble_destination_loaded_leg precondition: requires origin_node_ready, destination_node_occupied, origin_availability_confirmed, not destination_availability_confirmed, transport_leg_available. So we need destination node occupied, origin node ready, origin availability confirmed, destination availability not confirmed.
+
+Thus we could:
+
+- Prepare origin availability: make origin_node_ready (maybe via activate_origin_node) and origin_availability_confirmed (via lock_origin_availability after making node ready). Keep origin_node_occupied false.
+
+- Prepare destination availability: load destination payload to make destination_node_occupied and destination_availability_locked (not confirmed). Then assemble destination-loaded leg (requires destination_node_occupied, origin_node_ready, origin_availability_confirmed, destination_availability not confirmed). After assemble, we get destination_leg_loaded true, transport_leg_assembled, destination_leg_loaded true, origin_leg_loaded false.
+
+- Then we can lock destination availability? Wait assemble_destination_loaded_leg requires not destination_availability_confirmed. So after assembling, destination_availability still not confirmed. Then we can lock destination availability (lock_destination_availability) which requires destination_node_ready (but destination_node_occupied currently true from load_destination_payload). Lock requires destination_node_ready, not destination_node_occupied? Actually lock_destination_availability precondition includes destination_node_ready? Let's check: lock_destination_availability precondition includes (destination_availability_node_linked ?destination_availability ?destination_node) (destination_node_ready ?destination_node) (not (destination_availability_locked ?destination_availability)). It does NOT require destination_node_occupied. So we need destination_node_ready, not occupied. But after load_destination_payload, destination_node_occupied true. We need to make it ready. We could unload destination payload (unload_destination_payload) which requires destination_payload_linked, not destination_availability_confirmed, etc, and sets destination_node_ready and destination_availability_confirmed. However unload_destination_payload also requires candidate_prepared etc. That would set destination_availability_confirmed (which we might not want before assembling destination-loaded leg? Actually assemble_destination_loaded_leg requires not destination_availability_confirmed. So we need to keep destination_availability not confirmed until after assembling. So we cannot unload before assembling. So we need destination_node_occupied for assemble, but lock requires destination_node_ready. Conflict.
+
+Thus we cannot lock destination availability while destination_node_occupied. However after assembling destination-loaded leg, we might still have destination_node_occupied (from load_destination_payload). To lock destination availability we need destination_node_ready. So we need to unload destination payload after assembling to make node ready, but that would set destination_availability_confirmed (which we might not want before lock? Actually lock requires not destination_availability_locked, but does not care about confirmation. It sets destination_availability_confirmed as effect. So we could unload after assembling to get destination_node_ready and destination_availability_confirmed, then lock? Wait lock requires not destination_availability_locked. After unload, destination_availability_locked? Not set by unload. So we still have destination_availability_locked false (since we never locked). Good. Then we can lock destination availability (which will set destination_availability_locked true and destination_availability_confirmed true). However after unload, destination_availability_confirmed becomes true (from unload). Then lock will also set it true (no conflict). So we can have destination availability confirmed after lock.
+
+Thus sequence for destination:
+
+- create destination availability
+- allocate vehicle, attach task profile, confirm preparedness
+- load destination payload (load_destination_payload) -> destination_node_occupied true, destination_availability_locked true (not confirmed), destination_payload_linked true.
+- activate origin node? Actually we need origin_node_ready for assemble_destination_loaded_leg. We'll handle origin separately.
+- Ensure origin availability: we need origin_node_ready and origin_availability_confirmed (but not locked? Actually assemble_destination_loaded_leg requires origin_availability_confirmed, not origin_availability_locked? It requires origin_availability_confirmed ?origin_availability (yes) and does not require origin_availability_locked. So we need origin availability confirmed but not necessarily locked. However later for dispatch we need origin availability locked and confirmed. So we will need to lock origin later.
+
+Thus we can prepare origin availability to get origin_availability_confirmed (via lock after making node ready). But lock requires origin_node_ready and not origin_availability_locked. We can achieve that without loading payload (so origin_node_occupied false). Let's prepare origin:
+
+- create origin availability
+- allocate vehicle, attach task profile, confirm preparedness
+- activate origin node (makes origin_node_ready)
+- assign operator
+- lock origin availability (requires origin_node_ready, not origin_availability_locked) -> sets origin_availability_locked true and origin_availability_confirmed true.
+
+Now origin_node_ready true, origin_availability_locked true, origin_availability_confirmed true, origin_node_occupied false (since we never loaded payload). Good.
+
+Now for destination:
+
+- create destination availability
+- allocate vehicle (maybe different)
+- attach task profile
+- confirm preparedness
+- load destination payload (load_destination_payload) -> destination_node_occupied true, destination_availability_locked true (not confirmed), destination_payload_linked true.
+- (We do NOT activate destination node yet because we need destination_node_occupied for assemble_destination_loaded_leg; activation would set destination_node_ready, conflicting with occupancy.)
+- Now we have origin_node_ready (true), destination_node_occupied (true), origin_availability_confirmed (true), destination_availability NOT confirmed (since we loaded payload but not locked). Good.
+- Assemble destination-loaded leg: assemble_destination_loaded_leg requires origin_availability_locked? Actually precondition includes origin_availability_locked ?origin_availability? Let's verify: assemble_destination_loaded_leg precondition includes (origin_availability_locked ?origin_availability) (destination_availability_locked ?destination_availability) (origin_availability_node_linked ?origin_availability ?origin_node) (destination_availability_node_linked ?destination_availability ?destination_node) (origin_node_ready ?origin_node) (destination_node_occupied ?destination_node) (origin_availability_confirmed ?origin_availability) (not (destination_availability_confirmed ?destination_availability)) (transport_leg_available ?transport_leg). Yes it requires origin_availability_locked and destination_availability_locked. Wait we have destination_availability_locked true (from load_destination_payload) but not confirmed. Good. Origin_availability_locked true (from lock). So we have both locked. Good.
+
+Thus we can assemble destination-loaded leg now.
+
+After assemble_destination_loaded_leg, we get transport_leg_assembled, destination_leg_loaded true, origin_leg_loaded false, transport_leg not available.
+
+Now we need to make destination availability confirmed for dispatch ready. We can unload destination payload (unload_destination_payload) which requires destination_payload_linked (we have), destination_node_occupied (we have), not destination_availability_confirmed (we have not confirmed yet). Effect: destination_node_ready, destination_availability_confirmed, cargo_available, not destination_payload_linked.
+
+After unload, destination_node_occupied? Not changed; but we may not need it. However lock_destination_availability requires destination_node_ready (we now have) and not destination_availability_locked (we still have destination_availability_locked true from load). Actually after load, destination_availability_locked true. Unload does not change lock status. So destination_availability_locked remains true. Lock_destination_availability requires not destination_availability_locked, so we cannot lock after load because it's already locked. We need to release lock? There's no unlock action. So we cannot lock destination availability after loading payload because lock requires not locked. So we need to avoid setting destination_availability_locked via load_destination_payload if we intend to later lock it. Alternative: we could avoid loading payload and instead get destination_node_occupied via some other means? Not possible. So maybe we should not lock destination availability via lock_destination_availability; maybe we can get destination_availability_locked via load_destination_payload (which sets it) and then we don't need to lock via lock action because we already have it locked. However mark_destination_availability_dispatch_ready requires destination_availability_locked AND destination_availability_confirmed. So we need both locked and confirmed. We have locked from load, we need confirmed. We can get confirmed via unload_destination_payload (which sets destination_availability_confirmed). So after load (locked, not confirmed), then unload (sets confirmed, leaves locked true). Good! So we don't need lock_destination_availability action at all. The lock action is optional; we can achieve locked+confirmed via load then unload.
+
+Similarly for origin availability we used load then unload to get locked+confirmed. So we can skip lock actions entirely.
+
+Thus we can avoid lock actions and just use load/unload to get both locked and confirmed.
+
+Now we need to ensure that after load/unload, the node occupancy status is appropriate for subsequent actions.
+
+Let's design full plan:
+
+We have two shift candidates (alpha, beta). We'll need to load containers onto the transport leg for each candidate. The transport leg can only be assembled once? Actually after assembling, transport_leg_available becomes false. So we can only assemble once. But we need the leg assembled for both candidates to load containers onto it. However after first candidate loads container, the leg remains assembled (transport_leg_assembled true). Loading container onto leg does not change transport_leg_assembled. So we can load multiple containers onto same leg? The action load_container_onto_leg requires transport_leg_assembled (true) and loading_container_available (we have two containers). It also requires candidate_transport_leg_linked (true). It does not consume the leg's assembled status. So we can load container for alpha, then for beta, each time loading_container_available must be true for that container. After loading alpha container, loading_container_alpha becomes not available. After loading beta container, loading_container_beta becomes not available. That's fine.
+
+Now we need to stage each candidate, verify loading, establish clearance, attach service window, validate route sequence, finalize candidate, allocate dispatch slot, execute schedule dispatch.
+
+But note: stage_schedule_candidate requires not origin_leg_loaded. Since we assembled destination-loaded leg (origin_leg_loaded false, destination_leg_loaded true). Good.
+
+verify_loading_profile_nominal requires not destination_leg_loaded (but we have destination_leg_loaded true). So we cannot use verify_loading_profile_nominal. Instead we should use verify_loading_profile_destination_flag (requires destination_leg_loaded true). Let's check its precondition: candidate_staged_for_loading, candidate_skill_certificate_linked, candidate_operator_linked, candidate_loading_container_linked, loading_container_leg_linked, destination_leg_loaded, not candidate_loading_verified. So we need candidate_staged_for_loading (from stage_schedule_candidate). Good.
+
+Then after verify_loading_profile_destination_flag we get candidate_loading_verified true.
+
+Then we need to establish clearance. Which establish_clearance action matches our state? We have destination_leg_loaded true, origin_leg_loaded false. So we should use establish_clearance_destination_loaded (requires candidate_loading_verified, compliance_certificate_linked, loading_container_linked, loading_container_leg_linked, not origin_leg_loaded, destination_leg_loaded, not candidate_clearance_established). Effect: candidate_clearance_established true, route_sequence_context_set true.
+
+Perfect! So we will use that.
+
+Thus for each shift candidate we need:
+
+- create candidate (if not already)
+- allocate vehicle unit
+- attach task profile
+- confirm preparedness
+- (maybe assign operator resource? Not required for schedule candidate pipeline? Actually many actions require candidate_operator_linked: verify_loading_profile_* need candidate_operator_linked. So we need to assign operator resource and link it.)
+- link loading container (already present via init)
+- load container onto leg (load_container_onto_leg)
+- stage schedule candidate (stage_schedule_candidate)
+- assign skill certificate? Actually verify_loading_profile_* requires candidate_skill_certificate_linked. So we need to assign skill certificate via assign_skill_certificate.
+- assign operator resource via assign_operator_resource (to get candidate_operator_linked)
+- verify_loading_profile_destination_flag (requires candidate_staged_for_loading, skill_certificate_linked, operator_linked, loading_container_linked, loading_container_leg_linked, destination_leg_loaded, not candidate_loading_verified)
+- assign compliance certificate? Actually establish_clearance_destination_loaded requires candidate_compliance_certificate_linked. So we need to assign compliance certificate via assign_compliance_certificate.
+- establish_clearance_destination_loaded
+- attach service window (attach_service_window) requires candidate_clearance_established, route_sequence_context_set, service_window_available.
+- validate_route_sequence (requires candidate_clearance_established, route_sequence_context_set, candidate_service_window_linked, candidate_origin_availability_linked, candidate_destination_availability_linked, origin_availability_confirmed, destination_availability_confirmed, candidate_task_profile_linked, not route_sequence_validated)
+- finalize_candidate_after_sequence_validation (requires candidate_clearance_established, route_sequence_validated, not candidate_finalized) -> sets candidate_finalized and dispatch_ready.
+- allocate_dispatch_slot_for_candidate (requires dispatch_ready, candidate_task_profile_linked, dispatch_slot_available, not dispatch_allocated)
+- execute_schedule_dispatch (requires dispatch_allocated, candidate_vehicle_linked, candidate_dispatch_slot_linked, not dispatched)
+
+We also need to ensure we have enough resources: vehicles, operators, skill certificates, compliance certificates, service windows, dispatch slots.
+
+We have:
+
+Vehicles: alpha, beta, gamma. We'll allocate:
+
+- origin availability: vehicle_unit_alpha (maybe)
+- destination availability: vehicle_unit_beta
+- shift candidate alpha: vehicle_unit_gamma
+- shift candidate beta: ??? we have no more vehicles. We have only three vehicles. We used alpha, beta, gamma. So we have no vehicle left for shift candidate beta. However we could reuse vehicles after they become available again after dispatch. After we execute origin dispatch, vehicle_unit_alpha becomes available again. Similarly after destination dispatch, vehicle_unit_beta becomes available. So we can schedule: allocate vehicle to origin, dispatch origin -> vehicle freed. Then allocate vehicle to shift candidate alpha, etc. Similarly for destination.
+
+Thus we need to order actions to reuse vehicles.
+
+We have two shift candidates; we could allocate vehicle gamma to shift candidate alpha, and after we finish shift candidate alpha dispatch, vehicle gamma becomes free, then allocate to shift candidate beta.
+
+We also need operator resource: only one operator (driver_operator_alpha). We need to link operator to each candidate (origin, destination, shift candidates) possibly sequentially. Since we have only one operator, we need to release after each use.
+
+Similarly skill certificate: only one skill_certificate_alpha. We need to assign to each shift candidate sequentially.
+
+Compliance certificate: only one compliance_certificate_alpha. Need to assign to each shift candidate sequentially.
+
+Service window: we have two service windows (alpha, beta). We can assign one to each shift candidate.
+
+Dispatch slot: only one dispatch_slot_alpha. We'll need to reuse after each dispatch.
+
+Thus we need to interleave actions to respect resource constraints.
+
+Goal: dispatch origin_availability_alpha, destination_availability_alpha, shift_candidate_alpha, shift_candidate_beta.
+
+We'll plan steps:
+
+Phase 1: Prepare origin availability for dispatch.
+
+- create origin_availability_alpha
+- allocate vehicle_unit_alpha to origin_availability_alpha
+- attach task profile (route_task_profile_alpha) to origin_availability_alpha
+- confirm preparedness (origin_availability_alpha)
+- activate origin node (activate_origin_node) (requires origin_node not ready, not occupied) -> origin_node_ready
+- assign operator resource to origin_availability_alpha (assign_operator_resource)
+- load origin payload (load_origin_payload) -> origin_node_occupied, origin_availability_locked, origin_payload_linked
+- unload origin payload (unload_origin_payload) -> origin_node_ready, origin_availability_confirmed, cargo_available, not origin_payload_linked
+- (now origin_availability_locked true, origin_availability_confirmed true)
+- authorize transport leg loading? We need transport leg assembled and loading authorized before we can mark origin dispatch ready. We'll need to assemble transport leg and authorize loading. But we need destination availability prepared as well for assembling leg. Let's prepare destination availability in parallel but we need to ensure we have resources.
+
+We'll prepare destination availability after origin steps but before assembling leg.
+
+Phase 2: Prepare destination availability.
+
+- create destination_availability_alpha
+- allocate vehicle_unit_beta to destination_availability_alpha
+- attach task profile (route_task_profile_alpha) to destination_availability_alpha
+- confirm preparedness
+- load destination payload (load_destination_payload) -> destination_node_occupied, destination_availability_locked, destination_payload_linked
+- (We will not activate destination node yet; we need destination_node_occupied for assemble_destination_loaded_leg)
+- Now we have origin availability locked+confirmed, origin_node_ready (from activate_origin_node), destination availability locked (not confirmed), destination_node_occupied.
+
+- Assemble destination-loaded leg: assemble_destination_loaded_leg (requires origin_availability_locked, destination_availability_locked, origin_node_ready, destination_node_occupied, origin_availability_confirmed, not destination_availability_confirmed, transport_leg_available). We have all true. After this, transport_leg_assembled true, destination_leg_loaded true, origin_leg_loaded false.
+
+- Unload destination payload (unload_destination_payload) -> destination_node_ready, destination_availability_confirmed, cargo_available, not destination_payload_linked. (Note: destination_availability_locked remains true from load.)
+
+Now we have origin availability locked+confirmed, destination availability locked+confirmed, transport_leg_assembled true, destination_leg_loaded true, origin_leg_loaded false, transport_leg_loading_authorized? Not yet.
+
+- Authorize transport leg loading: authorize_transport_leg_loading requires transport_leg_assembled, origin_availability_locked, candidate_task_profile_linked ?origin_availability ?route_task_profile, not transport_leg_loading_authorized. We have origin_availability_locked true, we need candidate_task_profile_linked for origin_availability (we attached earlier). So we can authorize.
+
+Now we have transport_leg_loading_authorized true.
+
+Now we can mark origin availability dispatch ready: mark_origin_availability_dispatch_ready (requires origin_availability_locked, origin_availability_confirmed, transport_leg_assembled, transport_leg_loading_authorized, not dispatch_ready). We have all.
+
+Now allocate dispatch slot for origin availability: allocate_dispatch_slot_for_candidate requires dispatch_ready origin_availability_alpha, candidate_task_profile_linked (we have), dispatch_slot_available (we have dispatch_slot_alpha), not dispatch_allocated. We'll allocate.
+
+Then execute_origin_dispatch: requires dispatch_allocated origin_availability_alpha, candidate_vehicle_linked (we allocated vehicle_unit_alpha), candidate_dispatch_slot_linked (we just allocated), not dispatched. After execution, origin_availability_alpha dispatched, vehicle_unit_alpha becomes available, dispatch_slot_alpha becomes available.
+
+Now we need to dispatch destination availability.
+
+Mark destination availability dispatch ready: mark_destination_availability_dispatch_ready requires destination_availability_locked, destination_availability_confirmed, transport_leg_assembled, transport_leg_loading_authorized, not dispatch_ready. We have all.
+
+Allocate dispatch slot for destination: allocate_dispatch_slot_for_candidate (dispatch_ready destination_availability_alpha, candidate_task_profile_linked, dispatch_slot_available (now free after origin dispatch), not dispatch_allocated). Allocate.
+
+Execute destination dispatch: execute_destination_dispatch (requires dispatch_allocated destination_availability_alpha, candidate_vehicle_linked (we allocated vehicle_unit_beta), candidate_dispatch_slot_linked, not dispatched). After execution, destination_availability_alpha dispatched, vehicle_unit_beta available, dispatch_slot_alpha available.
+
+Now we have origin and destination dispatched.
+
+Now we need to handle shift candidates.
+
+We have vehicle_unit_gamma free, operator free (we released after origin and destination? We need to release operator after each use). We assigned operator to origin availability via assign_operator_resource; we never released. We need to release operator before using for another candidate. There is action release_operator_resource (parameters ?candidate - candidate_entity ?operator_resource - operator_resource). It requires candidate_operator_linked. So after we finish with origin availability, we should release operator from origin_availability_alpha. Similarly for destination.
+
+Thus after origin dispatch, we should release operator from origin_availability_alpha. After destination dispatch, release operator from destination_availability_alpha.
+
+Similarly we need to manage skill certificate and compliance certificate: we will assign to each shift candidate, then release after use? There is release_skill_certificate and release_compliance_certificate actions.
+
+Service windows: we have two; we can assign one to each shift candidate and not need to release (maybe not needed). But we could release if needed but not required.
+
+Now we need to process shift candidate alpha:
+
+Steps for shift candidate alpha:
+
+- create shift_candidate_alpha (if not already)
+- allocate vehicle_unit_gamma to shift_candidate_alpha
+- attach task profile (route_task_profile_alpha) to shift_candidate_alpha
+- confirm preparedness
+- assign operator resource (assign_operator_resource) -> candidate_operator_linked
+- assign skill certificate (assign_skill_certificate) -> candidate_skill_certificate_linked
+- assign compliance certificate (assign_compliance_certificate) -> candidate_compliance_certificate_linked
+- (loading container already linked)
+- load container onto leg: load_container_onto_leg (requires candidate_prepared, candidate_transport_leg_linked, candidate_loading_container_linked, loading_container_available, transport_leg_assembled, transport_leg_loading_authorized, not loading_container_loaded). We have transport_leg_assembled true, transport_leg_loading_authorized true, loading_container_alpha available. Good.
+- stage schedule candidate: stage_schedule_candidate (requires candidate_prepared, candidate_loading_container_linked, loading_container_loaded, loading_container_leg_linked, candidate_task_profile_linked, not origin_leg_loaded, not candidate_staged_for_loading). Note origin_leg_loaded is false (we have destination_leg_loaded true). So condition satisfied.
+- assign operator? already assigned.
+- verify_loading_profile_destination_flag: requires candidate_staged_for_loading, candidate_skill_certificate_linked, candidate_operator_linked, candidate_loading_container_linked, loading_container_leg_linked, destination_leg_loaded, not candidate_loading_verified. We have destination_leg_loaded true, good.
+- assign compliance certificate? Already assigned.
+- establish_clearance_destination_loaded: requires candidate_loading_verified, candidate_compliance_certificate_linked, candidate_loading_container_linked, loading_container_leg_linked, not origin_leg_loaded, destination_leg_loaded, not candidate_clearance_established. We have all.
+- attach service window: attach_service_window (requires candidate_clearance_established, route_sequence_context_set, service_window_available). We have service_window_alpha available.
+- validate_route_sequence: requires candidate_clearance_established, route_sequence_context_set, candidate_service_window_linked, candidate_origin_availability_linked, candidate_destination_availability_linked, origin_availability_confirmed, destination_availability_confirmed, candidate_task_profile_linked, not route_sequence_validated. We have origin_availability_confirmed true, destination_availability_confirmed true, candidate_task_profile_linked true, etc.
+- finalize_candidate_after_sequence_validation: requires candidate_clearance_established, route_sequence_validated, not candidate_finalized. Effect: candidate_finalized true, dispatch_ready true.
+- allocate_dispatch_slot_for_candidate: requires dispatch_ready, candidate_task_profile_linked, dispatch_slot_available, not dispatch_allocated. We have dispatch_slot_alpha free after destination dispatch.
+- execute_schedule_dispatch: requires dispatch_allocated, candidate_vehicle_linked, candidate_dispatch_slot_linked, not dispatched. We have vehicle_unit_gamma allocated to candidate.
+
+After execution, shift_candidate_alpha dispatched, vehicle_unit_gamma becomes available, dispatch_slot_alpha available.
+
+Now shift candidate beta:
+
+We need to repeat similar steps, but we need to free resources: operator, skill certificate, compliance certificate, loading container beta, service window beta, vehicle (we can reuse vehicle_unit_gamma after alpha dispatch). Also we need to ensure origin and destination availabilities remain locked+confirmed and transport leg assembled and loading authorized (they remain true after dispatches? The dispatch actions do not affect transport leg status. So transport_leg_assembled remains true, transport_leg_loading_authorized remains true? The authorize action only sets it true; there is no action to unset it. So remains true.
+
+Thus we can repeat similar steps for shift candidate beta, using loading_container_beta, service_window_beta, and reusing operator, skill certificate, compliance certificate after releasing from alpha.
+
+We need to release skill certificate and compliance certificate after alpha dispatch. There are actions release_skill_certificate and release_compliance_certificate. They require candidate_skill_certificate_linked etc. So after alpha dispatch, we should release them.
+
+Similarly release operator resource.
+
+Now we need to ensure we have not violated any preconditions like candidate_prepared etc after we finalize? After finalize, candidate becomes finalized and dispatch_ready. After execute_schedule_dispatch, candidate becomes dispatched. That's fine.
+
+Now we need to ensure we don't accidentally break any preconditions for later steps due to side effects.
+
+Let's list all actions and track state.
+
+We'll produce plan in order.
+
+We'll need to include all necessary actions: create, allocate vehicle, attach task profile, confirm preparedness, load/unload payloads, activate nodes, assign operator, load container, stage, assign skill, assign compliance, verify loading profile destination flag, establish clearance destination loaded, attach service window, validate route sequence, finalize candidate after sequence validation, allocate dispatch slot, execute schedule dispatch, release resources.
+
+Also

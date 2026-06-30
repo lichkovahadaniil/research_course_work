@@ -126,11 +126,12 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
         TEST_MODEL,
         {
             "strict": {
-                "plan_length": None,
+                "parsable": False,
+                "plan_length": 12,
                 "executability": False,
                 "reachability": False,
-                "first_failure_step": 8,
-                "non_executable_failure": "state_execution_error",
+                "first_failure_step": None,
+                "non_executable_failure": "parse_error",
             },
             "legacy": {
                 "optimality_ratio": None,
@@ -152,7 +153,8 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
         TEST_MODEL,
         {
             "strict": {
-                "plan_length": None,
+                "parsable": True,
+                "plan_length": 9,
                 "executability": True,
                 "reachability": False,
                 "first_failure_step": None,
@@ -202,6 +204,7 @@ def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
     assert reachable_row["problem_type"] == "s01_l53"
     assert reachable_row["plan_length"] == 4
     assert failed_row["plan_length"] != failed_row["plan_length"]
+    assert unreachable_row["plan_length"] != unreachable_row["plan_length"]
     assert failed_row["conditional_reachability"] != failed_row["conditional_reachability"]
     assert failed_row["non_executable_failure"] == 1.0
     assert unreachable_row["conditional_reachability"] == 0.0
@@ -216,7 +219,11 @@ def test_summarize_records_groups_by_variant_and_model() -> None:
     records = pd.DataFrame(
         [
             {"variant": "canonical", "model": TEST_MODEL, "plan_length": 10},
-            {"variant": "canonical", "model": TEST_MODEL, "plan_length": 14},
+            {"variant": "canonical", "model": TEST_MODEL, "plan_length": 12},
+            *[
+                {"variant": "canonical", "model": TEST_MODEL, "plan_length": None}
+                for _ in range(13)
+            ],
             {"variant": "disp_1", "model": TEST_MODEL, "plan_length": 8},
         ]
     )
@@ -224,7 +231,7 @@ def test_summarize_records_groups_by_variant_and_model() -> None:
     summary = summarize_records(records, "plan_length")
 
     assert len(summary) == 2
-    assert summary.loc[summary["variant"] == "canonical", "plan_length"].iloc[0] == 12
+    assert summary.loc[summary["variant"] == "canonical", "plan_length"].iloc[0] == 11
 
 
 def test_summarize_problem_type_records_keeps_orders_separate() -> None:
