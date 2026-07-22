@@ -224,6 +224,12 @@ def report() -> None:
     build_statistical_tests()
 
 
+def graphs() -> None:
+    from plot_metrics import build_reports
+
+    build_reports(DOMAIN_TYPES, PROBLEM_REFS)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Minimal planning pipeline.")
     parser.add_argument(
@@ -255,7 +261,8 @@ def build_parser() -> argparse.ArgumentParser:
     models_run_parser.add_argument("--jobs", type=int, default=1, help="Number of parallel processes (default: 1)")
     models_run_parser.add_argument("--force", action="store_true")
 
-    subparsers.add_parser("report", help="Build barplot reports.")
+    subparsers.add_parser("graphs", help="Build technical and Russian graph sets without statistical reports.")
+    subparsers.add_parser("report", help="Build graph sets and statistical reports.")
     return parser
 
 
@@ -298,6 +305,10 @@ def main() -> None:
 
     if args.command == "report":
         report()
+        return
+
+    if args.command == "graphs":
+        graphs()
         return
 
 

@@ -3,7 +3,6 @@ import json
 from experiment_config import MODEL_NAMES, ProblemRef
 import plot_metrics
 from plot_metrics import (
-    DESIGN_COLORS,
     MODERN_COLORS,
     build_records,
     build_reports,
@@ -37,12 +36,11 @@ def write_result(root, domain, task, problem, variant, run_id, model, metrics, r
 
 
 def test_palette_assigns_unique_color_to_each_configured_model() -> None:
-    for base_colors in [MODERN_COLORS, DESIGN_COLORS]:
-        palette = _palette_for_model_count(base_colors, len(MODEL_NAMES))
+    palette = _palette_for_model_count(MODERN_COLORS, len(MODEL_NAMES))
 
-        assert len(palette) == len(MODEL_NAMES)
-        assert len({color.lower() for color in palette}) == len(MODEL_NAMES)
-        assert [_model_color(base_colors, model) for model in MODEL_NAMES] == palette
+    assert len(palette) == len(MODEL_NAMES)
+    assert len({color.lower() for color in palette}) == len(MODEL_NAMES)
+    assert [_model_color(MODERN_COLORS, model) for model in MODEL_NAMES] == palette
 
 
 def test_palette_expands_without_reusing_colors() -> None:
@@ -86,6 +84,44 @@ def test_problem_variant_bar_uses_unique_color_per_model(tmp_path, monkeypatch) 
 
     assert len(captured_colors) == len(MODEL_NAMES)
     assert len(set(captured_colors)) == len(MODEL_NAMES)
+
+
+def test_russian_problem_variant_bar_uses_report_labels(tmp_path, monkeypatch) -> None:
+    import pandas as pd
+
+    captured: dict[str, object] = {}
+
+    def capture_savefig(*args, **kwargs) -> None:
+        ax = plot_metrics.plt.gcf().axes[0]
+        captured["xlabel"] = ax.get_xlabel()
+        captured["ticks"] = [tick.get_text() for tick in ax.get_xticklabels()]
+        captured["legend"] = [text.get_text() for text in ax.get_legend().get_texts()]
+        captured["legend_title"] = ax.get_legend().get_title().get_text()
+
+    monkeypatch.setattr(plot_metrics.plt, "savefig", capture_savefig)
+    frame = pd.DataFrame(
+        [
+            {
+                "variant": "canonical",
+                "model": model_name,
+                "plan_length": model_index + 1,
+            }
+            for model_index, model_name in enumerate(MODEL_NAMES)
+        ]
+    )
+
+    _plot_problem_variant_bar(
+        frame,
+        {"slug": "plan_length", "title": "Plan Length", "rate": False},
+        tmp_path / "plot.png",
+        "Длина плана",
+        russian=True,
+    )
+
+    assert captured["xlabel"] == "Порядок действий"
+    assert captured["ticks"] == ["№0", "№1", "№2", "№3", "№4", "№5", "№6"]
+    assert captured["legend"] == ["DeepSeek V4", "GPT-OSS-120B", "Nemotron 3 super"]
+    assert captured["legend_title"] == "Модели"
 
 
 def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
@@ -323,7 +359,7 @@ def test_summarize_confidence_intervals_calculates_numeric_and_rate_intervals() 
     assert 2 / 3 < rate_summary["ci95_high"].iloc[0] <= 1
 
 
-def test_build_reports_writes_problem_and_order_barplots(tmp_path, monkeypatch) -> None:
+def test_build_reports_writes_technical_and_russian_graph_sets(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     write_result(
         tmp_path,
@@ -354,86 +390,30 @@ def test_build_reports_writes_problem_and_order_barplots(tmp_path, monkeypatch) 
 
     build_reports(["logistics"], [ProblemRef("alpha", "p7")])
 
-    assert (
-        tmp_path / "materials" / "logistics" / "graph" / "alpha" / "p7" / "plan_length_barplot.png"
-    ).exists()
-    assert (
-        tmp_path
-        / "materials"
-        / "logistics"
-        / "graph"
-        / "alpha"
-        / "p7"
-        / "plan_length_confidence_intervals.png"
-    ).exists()
-    assert (
-        tmp_path
-        / "materials"
-        / "logistics"
-        / "graph"
-        / "alpha"
-        / "p7"
-        / "confidence_intervals.csv"
-    ).exists()
-    assert (
-        tmp_path
-        / "materials"
-        / "logistics"
-        / "graph"
-        / "alpha"
-        / "p7"
-        / "completion_token_breakdown_barplot.png"
-    ).exists()
-    assert (
-        tmp_path
-        / "materials"
-        / "logistics"
-        / "graph"
-        / "plan_length_by_order_barplot.png"
-    ).exists()
-    assert (
-        tmp_path
-        / "materials"
-        / "logistics"
-        / "graph"
-        / "plan_length_by_order_confidence_intervals.png"
-    ).exists()
-    assert (
-        tmp_path
-        / "materials"
-        / "logistics"
-        / "graph"
-        / "confidence_intervals_by_order.csv"
-    ).exists()
-    assert (
-        tmp_path
-        / "materials"
-        / "logistics"
-        / "graph"
-        / "completion_token_breakdown_by_order_barplot.png"
-    ).exists()
-    assert (
-        tmp_path
-        / "materials"
-        / "logistics"
-        / "graph"
-        / "design"
-        / "plan_length_by_order_barplot.png"
-    ).exists()
-    assert (
-        tmp_path
-        / "materials"
-        / "logistics"
-        / "graph"
-        / "design"
-        / "plan_length_by_order_confidence_intervals.png"
-    ).exists()
-    assert (
-        tmp_path
-        / "materials"
-        / "logistics"
-        / "graph"
-        / "design"
-        / "completion_token_breakdown_by_order_barplot.png"
-    ).exists()
-    assert not (tmp_path / "materials" / "logistics" / "graph" / "by_problem_type").exists()
+    graph_dir = tmp_path / "materials" / "logistics" / "graph"
+    tech_problem_dir = graph_dir / "tech" / "cross_problem" / "p7"
+    report_problem_dir = graph_dir / "report" / "cross_problem" / "p7"
+    tech_means_dir = graph_dir / "tech" / "means"
+    report_means_dir = graph_dir / "report" / "means"
+
+    for problem_dir in [tech_problem_dir, report_problem_dir]:
+        assert (problem_dir / "plan_length_barplot.png").exists()
+        assert (problem_dir / "plan_length_confidence_intervals.png").exists()
+        assert (problem_dir / "confidence_intervals.csv").exists()
+        assert (problem_dir / "completion_token_breakdown_barplot.png").exists()
+
+    for means_dir in [tech_means_dir, report_means_dir]:
+        assert (means_dir / "plan_length_by_order_barplot.png").exists()
+        assert (means_dir / "plan_length_by_order_confidence_intervals.png").exists()
+        assert (means_dir / "confidence_intervals_by_order.csv").exists()
+        assert (means_dir / "completion_token_breakdown_by_order_barplot.png").exists()
+
+    assert (tech_problem_dir / "confidence_intervals.csv").read_bytes() == (
+        report_problem_dir / "confidence_intervals.csv"
+    ).read_bytes()
+    assert (tech_means_dir / "confidence_intervals_by_order.csv").read_bytes() == (
+        report_means_dir / "confidence_intervals_by_order.csv"
+    ).read_bytes()
+    assert not (graph_dir / "alpha").exists()
+    assert not (graph_dir / "design").exists()
+    assert not (graph_dir / "plan_length_by_order_barplot.png").exists()

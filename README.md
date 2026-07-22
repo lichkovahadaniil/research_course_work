@@ -176,13 +176,21 @@ python3 main.py models-run \
   --jobs 5
 ```
 
-### 4. Build plots and statistical reports
+### 4. Generate all graphs
 
 ```bash
-python3 main.py report
+venv/bin/python main.py graphs
 ```
 
-This rebuilds aggregate plots and statistical-test files from saved `llm_result.json` artifacts. It does not make new model/API calls.
+This rebuilds `materials/logistics/graph/` from saved `llm_result.json` artifacts. It makes no model/API calls and does not change experiment results. The command creates both technical and Russian report versions of every aggregate and per-problem graph.
+
+### 5. Build graphs and statistical reports
+
+```bash
+venv/bin/python main.py report
+```
+
+This runs the same graph generation and also rebuilds statistical-test files from saved artifacts.
 
 ## Output artifacts
 
@@ -205,11 +213,17 @@ Plots and summary tables are written to:
 
 ```text
 materials/logistics/graph/
-├── *_by_order_barplot.png
-├── *_by_order_confidence_intervals.png
-├── confidence_intervals_by_order.csv
-└── design/
+├── tech/
+│   ├── means/                 # Aggregate graphs and confidence-interval table
+│   └── cross_problem/
+│       └── p1/ … p20/         # Graphs and table for each problem
+└── report/
+    ├── means/                 # Same aggregate graphs, fully in Russian
+    └── cross_problem/
+        └── p1/ … p20/         # Same per-problem graphs, fully in Russian
 ```
+
+`report/` uses `№0`–`№6` for the action orders and displays models as `DeepSeek V4`, `GPT-OSS-120B`, and `Nemotron 3 super`. CSV files retain raw identifiers and numeric values so both trees contain the same results.
 
 Statistical-test outputs are written to:
 

@@ -190,35 +190,25 @@ MODERN_COLORS = [
 ]
 CONFIDENCE_LEVEL_LABEL = "95%"
 NORMAL_95_Z = 1.959963984540054
-DESIGN_GRAPH_DIR_NAME = "design"
-DESIGN_BACKGROUND = "#ffffff"
-DESIGN_PANEL = "#FBF7EF"
-DESIGN_INK = "#241C15"
-DESIGN_MUTED = "#73675C"
-DESIGN_GRID = "#D8CEC0"
-DESIGN_COLORS = [
-    "#C65F3D",
-    "#38695B",
-    "#6A5E9C",
-    "#D39B2A",
-    "#2F6F91",
-    "#8F4F68",
-    "#5F7F3A",
-    "#A7652E",
-]
-DESIGN_VARIANT_LABELS = {
-    "canonical": "канонический",
-    "disp_1": "с разбросом\n1 уровня",
-    "disp_2": "с разбросом\n2 уровня",
-    "disp_3": "с разбросом\n3 уровня",
-    "plan_front": "последовательный",
-    "plan_back": "обратный\nплан",
-    "plan_scatter": "рассеянный",
+TECH_GRAPH_DIR_NAME = "tech"
+REPORT_GRAPH_DIR_NAME = "report"
+MEANS_GRAPH_DIR_NAME = "means"
+CROSS_PROBLEM_GRAPH_DIR_NAME = "cross_problem"
+REPORT_VARIANT_LABELS = {
+    "canonical": "№0",
+    "disp_1": "№1",
+    "disp_2": "№2",
+    "disp_3": "№3",
+    "plan_front": "№4",
+    "plan_back": "№5",
+    "plan_scatter": "№6",
 }
-DESIGN_MODEL_LABELS = {
-    "deepseek/deepseek-v4-flash": "deepseek",
+REPORT_MODEL_LABELS = {
+    "deepseek/deepseek-v4-flash": "DeepSeek V4",
+    "gpt-oss-120b": "GPT-OSS-120B",
+    "nemotron-3-super": "Nemotron 3 super",
 }
-DESIGN_METRIC_LABELS = {
+REPORT_METRIC_LABELS = {
     "plan_length": {
         "title": "Длина плана",
         "ylabel": "Средняя длина плана",
@@ -229,15 +219,15 @@ DESIGN_METRIC_LABELS = {
     },
     "reachability": {
         "title": "Достижение цели",
-        "ylabel": "Доля планов, достигших цель",
+        "ylabel": "Доля планов, достигших цели",
     },
     "conditional_reachability": {
-        "title": "Достижение цели среди исполнимых",
-        "ylabel": "Доля достигших цель среди исполнимых планов",
+        "title": "Достижение цели среди исполнимых планов",
+        "ylabel": "Доля планов, достигших цели, среди исполнимых",
     },
     "optimality_ratio": {
         "title": "Коэффициент оптимальности",
-        "ylabel": "Отношение к оптимальной длине",
+        "ylabel": "Отношение длины плана к оптимальной",
     },
     "execution_progress": {
         "title": "Прогресс исполнения",
@@ -589,25 +579,73 @@ def _metric_subset(records: pd.DataFrame, metric: dict) -> pd.DataFrame:
     return records[records[slug].notna()].copy()
 
 
-def _metric_title(metric: dict, coverage_ratio: float) -> str:
-    if metric["subset"] == "reachable":
-        return f"{metric['title']} (only reachable, {coverage_ratio:.0%})"
-    if metric["subset"] == "executable":
-        return f"{metric['title']} (only executable plans, {coverage_ratio:.0%})"
-    if metric["subset"] == "failure_step":
-        return f"{metric['title']} (available, {coverage_ratio:.0%})"
-    return f"{metric['title']} ({coverage_ratio:.0%})"
+def _variant_label(variant_name: str, *, russian: bool) -> str:
+    if russian:
+        return REPORT_VARIANT_LABELS.get(variant_name, variant_name)
+    return variant_name
 
 
-def _metric_ylabel(metric: dict) -> str:
+def _model_label(model_name: str, *, russian: bool) -> str:
+    if russian:
+        return REPORT_MODEL_LABELS.get(model_name, model_name)
+    return model_name
+
+
+def _metric_display_title(metric: dict, *, russian: bool) -> str:
+    if russian:
+        return REPORT_METRIC_LABELS.get(metric["slug"], {}).get("title", metric["title"])
+    return metric["title"]
+
+
+def _metric_title(metric: dict, coverage_ratio: float, *, russian: bool = False) -> str:
+    title = _metric_display_title(metric, russian=russian)
+    subset = metric.get("subset")
+    if russian:
+        if subset == "reachable":
+            return f"{title} (только планы, достигшие цели; {coverage_ratio:.0%})"
+        if subset == "executable":
+            return f"{title} (только исполнимые планы; {coverage_ratio:.0%})"
+        if subset == "failure_step":
+            return f"{title} (доступные значения; {coverage_ratio:.0%})"
+        return f"{title} ({coverage_ratio:.0%})"
+    if subset == "reachable":
+        return f"{title} (only reachable, {coverage_ratio:.0%})"
+    if subset == "executable":
+        return f"{title} (only executable plans, {coverage_ratio:.0%})"
+    if subset == "failure_step":
+        return f"{title} (available, {coverage_ratio:.0%})"
+    return f"{title} ({coverage_ratio:.0%})"
+
+
+def _metric_ylabel(metric: dict, *, russian: bool = False) -> str:
+    if russian:
+        return REPORT_METRIC_LABELS.get(metric["slug"], {}).get(
+            "ylabel",
+            _metric_display_title(metric, russian=True),
+        )
     return metric.get("ylabel", f"Average {metric['title']}")
 
 
-def _token_breakdown_title(coverage_ratio: float) -> str:
+def _token_breakdown_title(coverage_ratio: float, *, russian: bool = False) -> str:
+    if russian:
+        return f"Структура токенов завершения ({coverage_ratio:.0%})"
     return f"Completion Token Breakdown ({coverage_ratio:.0%})"
 
 
-def _plot_problem_variant_bar(frame: pd.DataFrame, metric: dict, output_path: Path, title: str) -> None:
+def _problem_label(problem_ref: ProblemRef, *, russian: bool) -> str:
+    if russian:
+        return f"Задача {problem_ref.problem}"
+    return problem_ref.label
+
+
+def _plot_problem_variant_bar(
+    frame: pd.DataFrame,
+    metric: dict,
+    output_path: Path,
+    title: str,
+    *,
+    russian: bool = False,
+) -> None:
     if frame.empty:
         return
 
@@ -617,33 +655,44 @@ def _plot_problem_variant_bar(frame: pd.DataFrame, metric: dict, output_path: Pa
         .reindex(index=VARIANT_NAMES, columns=MODEL_NAMES)
     )
 
-    ax = pivot.plot(
-        kind="bar", 
+    display_pivot = pivot.copy()
+    if russian:
+        display_pivot.index = [_variant_label(variant_name, russian=True) for variant_name in pivot.index]
+        display_pivot.columns = [_model_label(model_name, russian=True) for model_name in pivot.columns]
+
+    ax = display_pivot.plot(
+        kind="bar",
         width=0.8,
         figsize=(10, 6),
         color=_palette_for_model_count(MODERN_COLORS, len(MODEL_NAMES)),
-        edgecolor="none" # Убираем черную обводку самих столбцов
+        edgecolor="none",
     )
-    
-    ax.set_title(title, pad=20, fontsize=14, fontweight='bold', color='#333333')
-    ax.set_ylabel(_metric_ylabel(metric), fontsize=11, color='#555555')
-    ax.set_xlabel("Variant", fontsize=11, color='#555555')
-    
+
+    ax.set_title(title, pad=20, fontsize=14, fontweight="bold", color="#333333")
+    ax.set_ylabel(_metric_ylabel(metric, russian=russian), fontsize=11, color="#555555")
+    ax.set_xlabel("Порядок действий" if russian else "Variant", fontsize=11, color="#555555")
+
     _apply_modern_style(ax)
     _add_value_labels(ax, is_rate=metric["rate"])
-    ax.legend(title="Models", bbox_to_anchor=(1.02, 1), loc='upper left', frameon=False, title_fontsize='12')
-    
+    ax.legend(
+        title="Модели" if russian else "Models",
+        bbox_to_anchor=(1.02, 1),
+        loc="upper left",
+        frameon=False,
+        title_fontsize="12",
+    )
+
     if metric["rate"]:
-        ax.set_ylim(0, 1.15) # Увеличенный запас сверху для цифр
+        ax.set_ylim(0, 1.15)
         ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
     else:
         ax.set_ylim(0, ax.get_ylim()[1] * 1.15)
-    
-    plt.xticks(rotation=0, color='#333333')
-    plt.yticks(color='#333333')
+
+    plt.xticks(rotation=0, color="#333333")
+    plt.yticks(color="#333333")
     plt.tight_layout()
-    
-    plt.savefig(output_path, dpi=300, bbox_inches="tight") # dpi=300 для высокой четкости
+
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
 
 
@@ -685,7 +734,14 @@ def _set_interval_xlim(ax, summary: pd.DataFrame, metric: dict) -> None:
     ax.set_xlim(minimum - span * 0.04, maximum + span * 0.16)
 
 
-def _plot_confidence_intervals(frame: pd.DataFrame, metric: dict, output_path: Path, title: str) -> None:
+def _plot_confidence_intervals(
+    frame: pd.DataFrame,
+    metric: dict,
+    output_path: Path,
+    title: str,
+    *,
+    russian: bool = False,
+) -> None:
     if frame.empty:
         return
 
@@ -756,22 +812,25 @@ def _plot_confidence_intervals(frame: pd.DataFrame, metric: dict, output_path: P
             capthick=2.3,
             color=color,
             ecolor=color,
-            label=model_name,
+            label=_model_label(model_name, russian=russian),
             alpha=0.95,
             zorder=3,
         )
 
     ax.set_title(title, pad=18, fontsize=14, fontweight="bold", color="#333333")
-    ax.set_xlabel(_metric_ylabel(metric), fontsize=11, color="#555555")
-    ax.set_ylabel("Variant", fontsize=11, color="#555555")
+    ax.set_xlabel(_metric_ylabel(metric, russian=russian), fontsize=11, color="#555555")
+    ax.set_ylabel("Порядок действий" if russian else "Variant", fontsize=11, color="#555555")
     ax.set_yticks(list(variant_positions.values()))
-    ax.set_yticklabels(variants, color="#333333")
+    ax.set_yticklabels(
+        [_variant_label(variant_name, russian=russian) for variant_name in variants],
+        color="#333333",
+    )
     ax.invert_yaxis()
     _set_interval_xlim(ax, summary, metric)
     _apply_interval_style(ax)
 
     ax.legend(
-        title="Models",
+        title="Модели" if russian else "Models",
         bbox_to_anchor=(1.02, 1),
         loc="upper left",
         frameon=False,
@@ -780,7 +839,11 @@ def _plot_confidence_intervals(frame: pd.DataFrame, metric: dict, output_path: P
     ax.text(
         0,
         -0.14,
-        f"Dot = mean; whisker = {CONFIDENCE_LEVEL_LABEL} confidence interval.",
+        (
+            f"Точка — среднее значение; отрезок — {CONFIDENCE_LEVEL_LABEL}-й доверительный интервал."
+            if russian
+            else f"Dot = mean; whisker = {CONFIDENCE_LEVEL_LABEL} confidence interval."
+        ),
         transform=ax.transAxes,
         ha="left",
         va="top",
@@ -789,404 +852,6 @@ def _plot_confidence_intervals(frame: pd.DataFrame, metric: dict, output_path: P
     )
     fig.subplots_adjust(right=0.78, bottom=0.18)
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-
-
-def _design_variant_label(variant_name: str) -> str:
-    return DESIGN_VARIANT_LABELS.get(variant_name, variant_name)
-
-
-def _design_model_label(model_name: str) -> str:
-    return DESIGN_MODEL_LABELS.get(model_name, model_name)
-
-
-def _design_metric_title(metric: dict) -> str:
-    return DESIGN_METRIC_LABELS.get(metric["slug"], {}).get("title", metric["title"])
-
-
-def _design_metric_ylabel(metric: dict) -> str:
-    return DESIGN_METRIC_LABELS.get(metric["slug"], {}).get("ylabel", _metric_ylabel(metric))
-
-
-def _design_subset_note(metric: dict, coverage_ratio: float) -> str:
-    if metric["subset"] == "reachable":
-        return f"Только планы, достигшие цель; покрытие выборки {coverage_ratio:.0%}"
-    if metric["subset"] == "executable":
-        return f"Только исполнимые планы; покрытие выборки {coverage_ratio:.0%}"
-    if metric["subset"] == "failure_step":
-        return f"Только запуски с зафиксированной ошибкой; покрытие выборки {coverage_ratio:.0%}"
-    return "Все запуски"
-
-
-def _setup_design_figure(figsize: tuple[float, float] = (13.33, 7.5)):
-    fig, ax = plt.subplots(figsize=figsize)
-    fig.patch.set_facecolor(DESIGN_BACKGROUND)
-    ax.set_facecolor(DESIGN_PANEL)
-    return fig, ax
-
-
-def _apply_design_axis_style(ax, *, grid_axis: str) -> None:
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.spines["left"].set_color(DESIGN_GRID)
-    ax.spines["bottom"].set_color(DESIGN_GRID)
-    ax.tick_params(colors=DESIGN_INK, labelsize=11)
-    ax.grid(axis=grid_axis, color=DESIGN_GRID, linewidth=1.1, alpha=0.7)
-    ax.grid(axis="x" if grid_axis == "y" else "y", visible=False)
-    ax.set_axisbelow(True)
-
-
-def _add_design_header(fig, title: str, subtitle: str) -> None:
-    fig.text(
-        0.06,
-        0.94,
-        title,
-        ha="left",
-        va="top",
-        fontsize=23,
-        fontweight="bold",
-        color=DESIGN_INK,
-    )
-    fig.text(
-        0.06,
-        0.895,
-        subtitle,
-        ha="left",
-        va="top",
-        fontsize=12.5,
-        color=DESIGN_MUTED,
-    )
-
-
-def _add_design_footer(fig, text: str) -> None:
-    fig.text(
-        0.06,
-        0.055,
-        text,
-        ha="left",
-        va="bottom",
-        fontsize=10.5,
-        color=DESIGN_MUTED,
-    )
-
-
-def _design_output_path(design_dir: Path, output_name: str) -> Path:
-    design_dir.mkdir(parents=True, exist_ok=True)
-    return design_dir / output_name
-
-
-def _plot_design_order_bar(
-    frame: pd.DataFrame,
-    metric: dict,
-    output_path: Path,
-    coverage_ratio: float,
-) -> None:
-    if frame.empty:
-        return
-
-    pivot = (
-        summarize_records(frame, metric["slug"])
-        .pivot(index="variant", columns="model", values=metric["slug"])
-        .reindex(index=VARIANT_NAMES, columns=MODEL_NAMES)
-    )
-    if pivot.empty:
-        return
-
-    fig, ax = _setup_design_figure()
-    _add_design_header(
-        fig,
-        f"{_design_metric_title(metric)} по порядку действий",
-        f"Столбец — среднее значение. {_design_subset_note(metric, coverage_ratio)}.",
-    )
-
-    variant_positions = list(range(len(VARIANT_NAMES)))
-    width = 0.74 / max(len(MODEL_NAMES), 1)
-    max_height = 0.0
-
-    for model_index, model_name in enumerate(MODEL_NAMES):
-        color = _model_color(DESIGN_COLORS, model_name)
-        offset = (model_index - (len(MODEL_NAMES) - 1) / 2) * width
-        values = [
-            float(value) if pd.notna(value) else math.nan
-            for value in pivot.get(model_name, pd.Series(index=VARIANT_NAMES, dtype=float)).tolist()
-        ]
-        x_positions = [position + offset for position in variant_positions]
-        bars = ax.bar(
-            x_positions,
-            values,
-            width=width * 0.88,
-            color=color,
-            edgecolor="none",
-            label=_design_model_label(model_name),
-            alpha=0.96,
-        )
-        for bar, value in zip(bars, values):
-            if not math.isfinite(value):
-                continue
-            max_height = max(max_height, value)
-            ax.annotate(
-                _format_metric_value(value, metric["rate"]),
-                (bar.get_x() + bar.get_width() / 2, value),
-                ha="center",
-                va="bottom",
-                xytext=(0, 7),
-                textcoords="offset points",
-                fontsize=10,
-                color=DESIGN_INK,
-            )
-
-    ax.set_ylabel(_design_metric_ylabel(metric), fontsize=12.5, color=DESIGN_INK, labelpad=12)
-    ax.set_xlabel("")
-    ax.set_xticks(variant_positions)
-    ax.set_xticklabels([_design_variant_label(variant) for variant in VARIANT_NAMES])
-    if metric["rate"]:
-        ax.set_ylim(0, 1.12)
-        ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
-    else:
-        ax.set_ylim(0, max_height * 1.18 if max_height > 0 else 1.0)
-
-    _apply_design_axis_style(ax, grid_axis="y")
-    ax.legend(
-        title="Модель",
-        loc="upper right",
-        bbox_to_anchor=(1.0, 1.18),
-        frameon=False,
-        ncol=len(MODEL_NAMES),
-        fontsize=11,
-        title_fontsize=11,
-        labelcolor=DESIGN_INK,
-    )
-    _add_design_footer(fig, "Сводка по всем задачам и запускам.")
-    fig.subplots_adjust(left=0.10, right=0.96, top=0.78, bottom=0.20)
-    plt.savefig(output_path, dpi=300, bbox_inches="tight", facecolor=fig.get_facecolor())
-    plt.close(fig)
-
-
-def _set_design_interval_xlim(ax, summary: pd.DataFrame, metric: dict) -> None:
-    if metric["rate"]:
-        ax.set_xlim(0, 1.0)
-        ax.xaxis.set_major_formatter(PercentFormatter(xmax=1.0))
-        return
-
-    low = summary["ci95_low"].min()
-    high = summary["ci95_high"].max()
-    if not math.isfinite(low) or not math.isfinite(high):
-        ax.set_xlim(0, 1)
-        return
-    minimum = min(0.0, low)
-    maximum = high
-    span = maximum - minimum
-    if span <= 0:
-        span = abs(maximum) if maximum else 1.0
-    ax.set_xlim(minimum - span * 0.04, maximum + span * 0.20)
-
-
-def _plot_design_confidence_intervals(
-    frame: pd.DataFrame,
-    metric: dict,
-    output_path: Path,
-    coverage_ratio: float,
-) -> None:
-    if frame.empty:
-        return
-
-    summary = summarize_confidence_intervals(frame, metric, coverage_ratio)
-    if summary.empty:
-        return
-
-    variants = _ordered_values(summary["variant"], VARIANT_NAMES)
-    models = _ordered_values(summary["model"], MODEL_NAMES)
-    if not variants or not models:
-        return
-
-    fig, ax = _setup_design_figure()
-    _add_design_header(
-        fig,
-        f"{_design_metric_title(metric)}: 95% доверительный интервал",
-        f"Точка — среднее значение, отрезок — 95% ДИ. {_design_subset_note(metric, coverage_ratio)}.",
-    )
-
-    variant_positions = {variant_name: index for index, variant_name in enumerate(variants)}
-    model_offset_step = 0.24 if len(models) > 1 else 0.0
-
-    for position in range(len(variants)):
-        if position % 2 == 0:
-            ax.axhspan(position - 0.5, position + 0.5, color="#F0E8DC", zorder=0)
-
-    for model_index, model_name in enumerate(models):
-        color = _model_color(DESIGN_COLORS, model_name, models)
-        offset = (model_index - (len(models) - 1) / 2) * model_offset_step
-        model_summary = summary[summary["model"] == model_name]
-        x_values: list[float] = []
-        y_values: list[float] = []
-        xerr_low: list[float] = []
-        xerr_high: list[float] = []
-
-        for row in model_summary.itertuples(index=False):
-            if row.variant not in variant_positions:
-                continue
-            mean = float(row.mean)
-            ci_low = float(row.ci95_low)
-            ci_high = float(row.ci95_high)
-            if not all(math.isfinite(value) for value in [mean, ci_low, ci_high]):
-                continue
-            y = variant_positions[row.variant] + offset
-            x_values.append(mean)
-            y_values.append(y)
-            xerr_low.append(max(0.0, mean - ci_low))
-            xerr_high.append(max(0.0, ci_high - mean))
-            ax.annotate(
-                _format_metric_value(mean, metric["rate"]),
-                (ci_high, y),
-                xytext=(9, 0),
-                textcoords="offset points",
-                ha="left",
-                va="center",
-                fontsize=10,
-                color=DESIGN_INK,
-                clip_on=False,
-            )
-
-        if not x_values:
-            continue
-        ax.errorbar(
-            x_values,
-            y_values,
-            xerr=[xerr_low, xerr_high],
-            fmt="o",
-            markersize=8.2,
-            linewidth=0,
-            elinewidth=3.2,
-            capsize=5,
-            capthick=2.2,
-            color=color,
-            ecolor=color,
-            label=_design_model_label(model_name),
-            alpha=0.96,
-            zorder=3,
-        )
-
-    ax.set_xlabel(_design_metric_ylabel(metric), fontsize=12.5, color=DESIGN_INK, labelpad=12)
-    ax.set_ylabel("")
-    ax.set_yticks(list(variant_positions.values()))
-    ax.set_yticklabels([_design_variant_label(variant) for variant in variants])
-    ax.invert_yaxis()
-    _set_design_interval_xlim(ax, summary, metric)
-    _apply_design_axis_style(ax, grid_axis="x")
-    ax.spines["left"].set_visible(False)
-    ax.tick_params(axis="y", length=0)
-    ax.legend(
-        title="Модель",
-        loc="upper right",
-        bbox_to_anchor=(1.0, 1.18),
-        frameon=False,
-        ncol=len(models),
-        fontsize=11,
-        title_fontsize=11,
-        labelcolor=DESIGN_INK,
-    )
-    _add_design_footer(fig, "Интервалы рассчитаны тем же методом, что и в исходных графиках.")
-    fig.subplots_adjust(left=0.20, right=0.88, top=0.78, bottom=0.17)
-    plt.savefig(output_path, dpi=300, bbox_inches="tight", facecolor=fig.get_facecolor())
-    plt.close(fig)
-
-
-def _plot_design_token_breakdown(
-    frame: pd.DataFrame,
-    output_path: Path,
-    coverage_ratio: float,
-) -> None:
-    if frame.empty:
-        return
-
-    summary = summarize_token_records(frame)
-    if summary.empty:
-        return
-
-    fig, ax = _setup_design_figure()
-    _add_design_header(
-        fig,
-        "Completion-токены по порядку действий",
-        f"Столбец — среднее число completion-токенов. Покрытие выборки {coverage_ratio:.0%}.",
-    )
-
-    width = 0.74 / max(len(MODEL_NAMES), 1)
-    variant_positions = list(range(len(VARIANT_NAMES)))
-    max_height = 0.0
-    model_handles = []
-
-    for model_index, model_name in enumerate(MODEL_NAMES):
-        color = _model_color(DESIGN_COLORS, model_name)
-        offset = (model_index - (len(MODEL_NAMES) - 1) / 2) * width
-        x_positions = [position + offset for position in variant_positions]
-        model_summary = (
-            summary[summary["model"] == model_name]
-            .set_index("variant")
-            .reindex(VARIANT_NAMES)
-            .fillna(0.0)
-        )
-        reasoning_values = model_summary["reasoning_completion_tokens"].tolist()
-        raw_values = model_summary["raw_completion_tokens"].tolist()
-        total_values = [
-            reasoning_value + raw_value
-            for reasoning_value, raw_value in zip(reasoning_values, raw_values)
-        ]
-        ax.bar(
-            x_positions,
-            reasoning_values,
-            width=width * 0.88,
-            color=color,
-            alpha=0.96,
-            edgecolor="none",
-        )
-        ax.bar(
-            x_positions,
-            raw_values,
-            width=width * 0.88,
-            bottom=reasoning_values,
-            color=color,
-            alpha=0.40,
-            edgecolor="none",
-        )
-        max_height = max(max_height, *(total_values or [0.0]))
-        model_handles.append(Patch(facecolor=color, alpha=0.96, label=_design_model_label(model_name)))
-
-    ax.set_ylabel("Среднее число completion-токенов", fontsize=12.5, color=DESIGN_INK, labelpad=12)
-    ax.set_xlabel("")
-    ax.set_xticks(variant_positions)
-    ax.set_xticklabels([_design_variant_label(variant) for variant in VARIANT_NAMES])
-    ax.set_ylim(0, max_height * 1.16 if max_height > 0 else 1.0)
-    _apply_design_axis_style(ax, grid_axis="y")
-
-    model_legend = ax.legend(
-        handles=model_handles,
-        title="Модель",
-        loc="upper right",
-        bbox_to_anchor=(1.0, 1.18),
-        frameon=False,
-        ncol=len(MODEL_NAMES),
-        fontsize=11,
-        title_fontsize=11,
-        labelcolor=DESIGN_INK,
-    )
-    ax.add_artist(model_legend)
-    ax.legend(
-        handles=[
-            Patch(facecolor=DESIGN_INK, alpha=0.96, label="reasoning"),
-            Patch(facecolor=DESIGN_INK, alpha=0.40, label="raw answer"),
-        ],
-        title="Тип токенов",
-        loc="upper right",
-        bbox_to_anchor=(1.0, 1.08),
-        frameon=False,
-        ncol=2,
-        fontsize=10.5,
-        title_fontsize=10.5,
-        labelcolor=DESIGN_INK,
-    )
-    _add_design_footer(fig, "Сводка по всем задачам и запускам.")
-    fig.subplots_adjust(left=0.10, right=0.96, top=0.76, bottom=0.20)
-    plt.savefig(output_path, dpi=300, bbox_inches="tight", facecolor=fig.get_facecolor())
     plt.close(fig)
 
 
@@ -1341,7 +1006,13 @@ def _add_token_share_label(ax, x: float, y: float, share: float, color: str) -> 
     )
 
 
-def _plot_problem_token_breakdown(frame: pd.DataFrame, output_path: Path, title: str) -> None:
+def _plot_problem_token_breakdown(
+    frame: pd.DataFrame,
+    output_path: Path,
+    title: str,
+    *,
+    russian: bool = False,
+) -> None:
     if frame.empty:
         return
 
@@ -1417,19 +1088,25 @@ def _plot_problem_token_breakdown(frame: pd.DataFrame, output_path: Path, title:
                 )
 
         max_height = max(max_height, *(total_values or [0.0]))
-        model_handles.append(Patch(facecolor=color, alpha=0.9, label=model_name))
+        model_handles.append(
+            Patch(facecolor=color, alpha=0.9, label=_model_label(model_name, russian=russian))
+        )
 
     ax.set_title(title, pad=20, fontsize=14, fontweight="bold", color="#333333")
-    ax.set_ylabel("Average completion tokens", fontsize=11, color="#555555")
-    ax.set_xlabel("Variant", fontsize=11, color="#555555")
+    ax.set_ylabel(
+        "Среднее число токенов завершения" if russian else "Average completion tokens",
+        fontsize=11,
+        color="#555555",
+    )
+    ax.set_xlabel("Порядок действий" if russian else "Variant", fontsize=11, color="#555555")
     ax.set_xticks(variant_positions)
-    ax.set_xticklabels(VARIANT_NAMES)
+    ax.set_xticklabels([_variant_label(variant_name, russian=russian) for variant_name in VARIANT_NAMES])
 
     _apply_modern_style(ax)
 
     model_legend = ax.legend(
         handles=model_handles,
-        title="Models",
+        title="Модели" if russian else "Models",
         bbox_to_anchor=(1.02, 1),
         loc="upper left",
         frameon=False,
@@ -1438,10 +1115,18 @@ def _plot_problem_token_breakdown(frame: pd.DataFrame, output_path: Path, title:
     ax.add_artist(model_legend)
     ax.legend(
         handles=[
-            Patch(facecolor="#666666", alpha=0.9, label="Reasoning tokens"),
-            Patch(facecolor="#666666", alpha=0.45, label="Raw answer tokens"),
+            Patch(
+                facecolor="#666666",
+                alpha=0.9,
+                label="Токены рассуждений" if russian else "Reasoning tokens",
+            ),
+            Patch(
+                facecolor="#666666",
+                alpha=0.45,
+                label="Токены исходного ответа" if russian else "Raw answer tokens",
+            ),
         ],
-        title="Token Type",
+        title="Тип токенов" if russian else "Token Type",
         bbox_to_anchor=(1.02, 0.7),
         loc="upper left",
         frameon=False,
@@ -1479,6 +1164,113 @@ def _write_confidence_interval_table(records: pd.DataFrame, output_path: Path) -
     table.to_csv(output_path, index=False)
 
 
+def _build_graph_set(
+    domain_records: pd.DataFrame,
+    problem_refs: list[ProblemRef],
+    output_dir: Path,
+    *,
+    russian: bool,
+) -> None:
+    means_dir = output_dir / MEANS_GRAPH_DIR_NAME
+    cross_problem_dir = output_dir / CROSS_PROBLEM_GRAPH_DIR_NAME
+    means_dir.mkdir(parents=True, exist_ok=True)
+
+    for problem_ref in problem_refs:
+        problem_dir = cross_problem_dir / problem_ref.problem
+        problem_dir.mkdir(parents=True, exist_ok=True)
+        problem_records = domain_records[
+            (domain_records["task"] == problem_ref.task)
+            & (domain_records["problem"] == problem_ref.problem)
+        ].copy()
+        if problem_records.empty:
+            continue
+
+        problem_label = _problem_label(problem_ref, russian=russian)
+        for metric in METRICS:
+            metric_records = _metric_subset(problem_records, metric)
+            coverage_ratio = len(metric_records) / len(problem_records)
+            metric_title = _metric_title(metric, coverage_ratio, russian=russian)
+            _plot_problem_variant_bar(
+                metric_records,
+                metric,
+                problem_dir / f"{metric['slug']}_barplot.png",
+                (
+                    f"{metric_title} по порядку действий — {problem_label}"
+                    if russian
+                    else f"{metric_title} by variant - {problem_label}"
+                ),
+                russian=russian,
+            )
+            _plot_confidence_intervals(
+                metric_records,
+                metric,
+                problem_dir / f"{metric['slug']}_confidence_intervals.png",
+                (
+                    f"{CONFIDENCE_LEVEL_LABEL}-й доверительный интервал: {metric_title} — {problem_label}"
+                    if russian
+                    else f"{CONFIDENCE_LEVEL_LABEL} CI: {metric_title} - {problem_label}"
+                ),
+                russian=russian,
+            )
+
+        _write_confidence_interval_table(problem_records, problem_dir / "confidence_intervals.csv")
+
+        token_records = _token_breakdown_subset(problem_records)
+        token_coverage_ratio = len(token_records) / len(problem_records)
+        token_title = _token_breakdown_title(token_coverage_ratio, russian=russian)
+        _plot_problem_token_breakdown(
+            token_records,
+            problem_dir / "completion_token_breakdown_barplot.png",
+            (
+                f"{token_title} по порядку действий — {problem_label}"
+                if russian
+                else f"{token_title} by variant - {problem_label}"
+            ),
+            russian=russian,
+        )
+
+    if domain_records.empty:
+        return
+
+    for metric in METRICS:
+        metric_records = _metric_subset(domain_records, metric)
+        if metric_records.empty:
+            continue
+
+        coverage_ratio = len(metric_records) / len(domain_records)
+        metric_title = _metric_title(metric, coverage_ratio, russian=russian)
+        _plot_problem_variant_bar(
+            metric_records,
+            metric,
+            means_dir / f"{metric['slug']}_by_order_barplot.png",
+            f"{metric_title} по порядку действий" if russian else f"{metric_title} by order",
+            russian=russian,
+        )
+        _plot_confidence_intervals(
+            metric_records,
+            metric,
+            means_dir / f"{metric['slug']}_by_order_confidence_intervals.png",
+            (
+                f"{CONFIDENCE_LEVEL_LABEL}-й доверительный интервал: {metric_title} по порядку действий"
+                if russian
+                else f"{CONFIDENCE_LEVEL_LABEL} CI: {metric_title} by order"
+            ),
+            russian=russian,
+        )
+
+    _write_confidence_interval_table(domain_records, means_dir / "confidence_intervals_by_order.csv")
+
+    token_records = _token_breakdown_subset(domain_records)
+    token_coverage_ratio = len(token_records) / len(domain_records)
+    token_title = _token_breakdown_title(token_coverage_ratio, russian=russian)
+    _plot_problem_token_breakdown(
+        token_records,
+        means_dir / "completion_token_breakdown_by_order_barplot.png",
+        f"{token_title} по порядку действий" if russian else f"{token_title} by order",
+        russian=russian,
+    )
+
+
 def build_reports(domains: list[str], problem_refs: list[ProblemRef]) -> None:
     all_records = build_records(domains, problem_refs)
 
@@ -1488,91 +1280,16 @@ def build_reports(domains: list[str], problem_refs: list[ProblemRef]) -> None:
         if graph_dir.exists():
             shutil.rmtree(graph_dir)
         graph_dir.mkdir(parents=True, exist_ok=True)
-        design_dir = graph_dir / DESIGN_GRAPH_DIR_NAME
 
-        for problem_ref in problem_refs:
-            (graph_dir / problem_ref.task / problem_ref.problem).mkdir(parents=True, exist_ok=True)
-        for problem_ref in problem_refs:
-            problem_records = domain_records[
-                (domain_records["task"] == problem_ref.task)
-                & (domain_records["problem"] == problem_ref.problem)
-            ].copy()
-            problem_dir = graph_dir / problem_ref.task / problem_ref.problem
-            if problem_records.empty:
-                continue
-            problem_label = problem_ref.label
-
-            for metric in METRICS:
-                metric_records = _metric_subset(problem_records, metric)
-                coverage_ratio = len(metric_records) / len(problem_records)
-                _plot_problem_variant_bar(
-                    metric_records,
-                    metric,
-                    problem_dir / f"{metric['slug']}_barplot.png",
-                    f"{_metric_title(metric, coverage_ratio)} by variant - {problem_label}",
-                )
-                _plot_confidence_intervals(
-                    metric_records,
-                    metric,
-                    problem_dir / f"{metric['slug']}_confidence_intervals.png",
-                    f"{CONFIDENCE_LEVEL_LABEL} CI: {_metric_title(metric, coverage_ratio)} - {problem_label}",
-                )
-
-            _write_confidence_interval_table(problem_records, problem_dir / "confidence_intervals.csv")
-
-            token_records = _token_breakdown_subset(problem_records)
-            token_coverage_ratio = len(token_records) / len(problem_records)
-            _plot_problem_token_breakdown(
-                token_records,
-                problem_dir / "completion_token_breakdown_barplot.png",
-                f"{_token_breakdown_title(token_coverage_ratio)} by variant - {problem_label}",
-            )
-
-        if domain_records.empty:
-            continue
-
-        for metric in METRICS:
-            metric_records = _metric_subset(domain_records, metric)
-            if metric_records.empty:
-                continue
-
-            coverage_ratio = len(metric_records) / len(domain_records)
-            _plot_problem_variant_bar(
-                metric_records,
-                metric,
-                graph_dir / f"{metric['slug']}_by_order_barplot.png",
-                f"{_metric_title(metric, coverage_ratio)} by order",
-            )
-            _plot_confidence_intervals(
-                metric_records,
-                metric,
-                graph_dir / f"{metric['slug']}_by_order_confidence_intervals.png",
-                f"{CONFIDENCE_LEVEL_LABEL} CI: {_metric_title(metric, coverage_ratio)} by order",
-            )
-            _plot_design_order_bar(
-                metric_records,
-                metric,
-                _design_output_path(design_dir, f"{metric['slug']}_by_order_barplot.png"),
-                coverage_ratio,
-            )
-            _plot_design_confidence_intervals(
-                metric_records,
-                metric,
-                _design_output_path(design_dir, f"{metric['slug']}_by_order_confidence_intervals.png"),
-                coverage_ratio,
-            )
-
-        _write_confidence_interval_table(domain_records, graph_dir / "confidence_intervals_by_order.csv")
-
-        token_records = _token_breakdown_subset(domain_records)
-        token_coverage_ratio = len(token_records) / len(domain_records)
-        _plot_problem_token_breakdown(
-            token_records,
-            graph_dir / "completion_token_breakdown_by_order_barplot.png",
-            f"{_token_breakdown_title(token_coverage_ratio)} by order",
+        _build_graph_set(
+            domain_records,
+            problem_refs,
+            graph_dir / TECH_GRAPH_DIR_NAME,
+            russian=False,
         )
-        _plot_design_token_breakdown(
-            token_records,
-            _design_output_path(design_dir, "completion_token_breakdown_by_order_barplot.png"),
-            token_coverage_ratio,
+        _build_graph_set(
+            domain_records,
+            problem_refs,
+            graph_dir / REPORT_GRAPH_DIR_NAME,
+            russian=True,
         )

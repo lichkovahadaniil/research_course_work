@@ -47,6 +47,12 @@ def test_default_domain_and_top_level_force_use_logistics() -> None:
     assert args.force is True
 
 
+def test_graphs_command_is_available() -> None:
+    args = build_parser().parse_args(["graphs"])
+
+    assert args.command == "graphs"
+
+
 def test_build_run_commands_skips_existing_runs_without_force(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     problem_ref = ProblemRef("alpha", "p1")
