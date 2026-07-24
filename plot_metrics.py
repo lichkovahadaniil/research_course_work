@@ -10,6 +10,7 @@ os.environ.setdefault("XDG_CACHE_HOME", "/tmp")
 
 import matplotlib
 import pandas as pd
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.ticker import PercentFormatter
 
@@ -198,6 +199,7 @@ REPORT_GRAPH_DIR_NAME = "report"
 MEANS_GRAPH_DIR_NAME = "means"
 CROSS_PROBLEM_GRAPH_DIR_NAME = "cross_problem"
 GROUPS_GRAPH_DIR_NAME = "groups"
+ALL_GROUPS_GRAPH_DIR_NAME = "all"
 REPORT_VARIANT_LABELS = {
     "canonical": "№0",
     "disp_1": "№1",
@@ -326,6 +328,48 @@ def _add_compact_model_legend(ax) -> None:
         loc="lower center",
         bbox_to_anchor=(0.5, 1.10),
         ncol=min(len(labels), 3),
+        frameon=False,
+        fontsize=10,
+        columnspacing=1.2,
+        handletextpad=0.5,
+    )
+
+
+def _model_legend_handles(*, russian: bool, interval: bool = False) -> list:
+    handles = []
+    for model_name in MODEL_NAMES:
+        color = _model_color(MODERN_COLORS, model_name)
+        label = _model_label(model_name, russian=russian)
+        if interval:
+            handles.append(
+                Line2D(
+                    [0],
+                    [0],
+                    color=color,
+                    marker="o",
+                    markersize=7,
+                    linewidth=2.5,
+                    label=label,
+                )
+            )
+        else:
+            handles.append(Patch(facecolor=color, alpha=0.9, label=label))
+    return handles
+
+
+def _add_compact_figure_model_legend(
+    fig,
+    *,
+    russian: bool,
+    interval: bool = False,
+    y: float = 0.99,
+) -> None:
+    handles = _model_legend_handles(russian=russian, interval=interval)
+    fig.legend(
+        handles=handles,
+        loc="upper center",
+        bbox_to_anchor=(0.5, y),
+        ncol=min(len(handles), 3),
         frameon=False,
         fontsize=10,
         columnspacing=1.2,
@@ -613,6 +657,7 @@ def _plan_length_groups_markdown(*, russian: bool) -> str:
             "# Группы по длине эталонного плана",
             "",
             "Каждая нумерованная папка содержит тот же набор агрегированных графиков и таблицу доверительных интервалов, что и `../means`, но только для задач из соответствующего включительного диапазона длины эталонного плана.",
+            "Папка `all` содержит по одному объединённому изображению для каждого вида графика: три панели соответствуют группам 1, 2 и 3 слева направо. Это только визуальное сравнение уже рассчитанных групп.",
             "Агрегация использует сохранённые результаты отдельных запусков; правила отбора метрик и методы доверительных интервалов не меняются.",
             "",
             "| Группа | Действий в эталонном плане | Количество задач | Задачи |",
@@ -623,6 +668,7 @@ def _plan_length_groups_markdown(*, russian: bool) -> str:
             "# Reference-plan-length groups",
             "",
             "Each numbered directory contains the same aggregate plots and confidence-interval table as `../means`, restricted to problems in the group's inclusive reference-plan-length range.",
+            "The `all` directory contains one combined image per graph type: its three panels show groups 1, 2, and 3 from left to right. It is a visual comparison of the already calculated groups only.",
             "Aggregation uses saved run-level results; metric eligibility rules and confidence-interval methods are unchanged.",
             "",
             "| Group | Reference-plan actions | Problem count | Problems |",
@@ -1081,6 +1127,408 @@ def _plot_problem_token_breakdown(
     plt.close(fig)
 
 
+def _plot_plan_length_group_bar_panels(
+    group_metric_records: list[tuple[PlanLengthGroup, pd.DataFrame]],
+    metric: dict,
+    output_path: Path,
+    *,
+    russian: bool,
+) -> None:
+    """Строит одну строку из трёх сопоставимых столбчатых графиков групп."""
+    pivots = [
+        (
+            group,
+            summarize_records(records, metric["slug"])
+            .pivot(index="variant", columns="model", values=metric["slug"])
+            .reindex(index=VARIANT_NAMES, columns=MODEL_NAMES),
+        )
+        for group, records in group_metric_records
+    ]
+    if not pivots:
+        return
+
+    finite_values = [
+        float(value)
+        for _, pivot in pivots
+        for value in pivot.to_numpy().ravel()
+        if pd.notna(value) and math.isfinite(float(value))
+    ]
+    if not finite_values:
+        return
+
+    fig, axes = plt.subplots(1, len(pivots), figsize=(18, 5.5), sharey=True)
+    axes = list(axes)
+    width = 0.8 / max(len(MODEL_NAMES), 1)
+    positions = list(range(len(VARIANT_NAMES)))
+    y_max = 1.05 if metric["rate"] else max(finite_values) * 1.05
+    if y_max <= 0:
+        y_max = 1.0
+
+    for panel_index, (ax, (group, pivot)) in enumerate(zip(axes, pivots)):
+        for model_index, model_name in enumerate(MODEL_NAMES):
+            color = _model_color(MODERN_COLORS, model_name)
+            offset = (model_index - (len(MODEL_NAMES) - 1) / 2) * width
+            ax.bar(
+                [position + offset for position in positions],
+                pivot[model_name].tolist(),
+                width=width * 0.92,
+                color=color,
+                edgecolor="none",
+            )
+
+        ax.set_title(
+            _plan_length_group_label(group, russian=russian),
+            pad=8,
+            fontsize=12,
+            fontweight="bold",
+            color="#333333",
+        )
+        ax.set_xlabel("")
+        ax.set_xticks(positions)
+        ax.set_xticklabels(
+            [_variant_label(variant_name, russian=russian) for variant_name in VARIANT_NAMES],
+            color="#333333",
+        )
+        ax.set_ylabel(
+            _metric_value_axis_label(russian=russian) if panel_index == 0 else "",
+            fontsize=10,
+            color="#555555",
+        )
+        ax.tick_params(axis="y", labelleft=panel_index == 0, colors="#333333")
+        _apply_modern_style(ax)
+        ax.set_ylim(0, y_max)
+        if metric["rate"]:
+            ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
+
+    _add_compact_figure_model_legend(fig, russian=russian)
+    fig.suptitle(
+        _metric_display_title(metric, russian=russian),
+        y=0.88,
+        fontsize=14,
+        fontweight="bold",
+        color="#333333",
+    )
+    fig.subplots_adjust(left=0.07, right=0.99, bottom=0.13, top=0.74, wspace=0.12)
+    fig.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _group_interval_bounds(
+    summaries: list[pd.DataFrame],
+    metric: dict,
+) -> tuple[float, float]:
+    if metric["rate"]:
+        return 0.0, 1.0
+
+    lows = [
+        float(value)
+        for summary in summaries
+        for value in summary["ci95_low"].tolist()
+        if math.isfinite(float(value))
+    ]
+    highs = [
+        float(value)
+        for summary in summaries
+        for value in summary["ci95_high"].tolist()
+        if math.isfinite(float(value))
+    ]
+    if not lows or not highs:
+        return 0.0, 1.0
+
+    minimum = min(0.0, min(lows))
+    maximum = max(highs)
+    span = maximum - minimum
+    if span <= 0:
+        span = abs(maximum) if maximum else 1.0
+    return minimum - span * 0.04, maximum + span * 0.16
+
+
+def _plot_plan_length_group_confidence_intervals(
+    group_metric_records: list[tuple[PlanLengthGroup, pd.DataFrame]],
+    metric: dict,
+    output_path: Path,
+    *,
+    russian: bool,
+) -> None:
+    """Строит три панели доверительных интервалов с общей шкалой метрики."""
+    group_summaries = [
+        (group, summarize_confidence_intervals(records, metric))
+        for group, records in group_metric_records
+    ]
+    if not group_summaries or any(summary.empty for _, summary in group_summaries):
+        return
+
+    present_variants = {
+        variant_name
+        for _, summary in group_summaries
+        for variant_name in summary["variant"].dropna().tolist()
+    }
+    variants = [variant_name for variant_name in VARIANT_NAMES if variant_name in present_variants]
+    variants.extend(sorted(present_variants - set(variants)))
+    present_models = {
+        model_name
+        for _, summary in group_summaries
+        for model_name in summary["model"].dropna().tolist()
+    }
+    models = [model_name for model_name in MODEL_NAMES if model_name in present_models]
+    models.extend(sorted(present_models - set(models)))
+    if not variants or not models:
+        return
+
+    fig_height = max(5.5, 0.9 + len(variants) * 0.72)
+    fig, axes = plt.subplots(
+        1,
+        len(group_summaries),
+        figsize=(18, fig_height),
+        sharex=True,
+        sharey=True,
+    )
+    axes = list(axes)
+    variant_positions = {variant_name: index for index, variant_name in enumerate(variants)}
+    model_offset_step = 0.22 if len(models) > 1 else 0.0
+
+    for panel_index, (ax, (group, summary)) in enumerate(zip(axes, group_summaries)):
+        for position in range(len(variants)):
+            if position % 2 == 0:
+                ax.axhspan(position - 0.5, position + 0.5, color="#F7F8FA", zorder=0)
+
+        for model_index, model_name in enumerate(models):
+            color = _model_color(MODERN_COLORS, model_name, models)
+            offset = (model_index - (len(models) - 1) / 2) * model_offset_step
+            model_summary = summary[summary["model"] == model_name]
+            x_values: list[float] = []
+            y_values: list[float] = []
+            xerr_low: list[float] = []
+            xerr_high: list[float] = []
+
+            for row in model_summary.itertuples(index=False):
+                if row.variant not in variant_positions:
+                    continue
+                mean = float(row.mean)
+                ci_low = float(row.ci95_low)
+                ci_high = float(row.ci95_high)
+                if not all(math.isfinite(value) for value in [mean, ci_low, ci_high]):
+                    continue
+
+                x_values.append(mean)
+                y_values.append(variant_positions[row.variant] + offset)
+                xerr_low.append(max(0.0, mean - ci_low))
+                xerr_high.append(max(0.0, ci_high - mean))
+
+            if x_values:
+                ax.errorbar(
+                    x_values,
+                    y_values,
+                    xerr=[xerr_low, xerr_high],
+                    fmt="o",
+                    markersize=7.5,
+                    linewidth=0,
+                    elinewidth=3.0,
+                    capsize=5,
+                    capthick=2.3,
+                    color=color,
+                    ecolor=color,
+                    alpha=0.95,
+                    zorder=3,
+                )
+
+        ax.set_title(
+            _plan_length_group_label(group, russian=russian),
+            pad=8,
+            fontsize=12,
+            fontweight="bold",
+            color="#333333",
+        )
+        ax.set_ylabel("")
+        ax.set_yticks(list(variant_positions.values()))
+        ax.set_yticklabels(
+            [_variant_label(variant_name, russian=russian) for variant_name in variants],
+            color="#333333",
+        )
+        ax.tick_params(axis="y", labelleft=panel_index == 0)
+        _apply_interval_style(ax)
+
+    x_min, x_max = _group_interval_bounds(
+        [summary for _, summary in group_summaries],
+        metric,
+    )
+    for ax in axes:
+        ax.set_xlim(x_min, x_max)
+        if metric["rate"]:
+            ax.xaxis.set_major_formatter(PercentFormatter(xmax=1.0))
+    axes[0].invert_yaxis()
+
+    _add_compact_figure_model_legend(fig, russian=russian, interval=True)
+    fig.suptitle(
+        _metric_display_title(metric, russian=russian),
+        y=0.88,
+        fontsize=14,
+        fontweight="bold",
+        color="#333333",
+    )
+    fig.supxlabel(_metric_value_axis_label(russian=russian), y=0.05, fontsize=10, color="#555555")
+    fig.subplots_adjust(left=0.07, right=0.99, bottom=0.16, top=0.74, wspace=0.12)
+    fig.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_plan_length_group_token_breakdown(
+    group_token_records: list[tuple[PlanLengthGroup, pd.DataFrame]],
+    output_path: Path,
+    *,
+    russian: bool,
+) -> None:
+    """Строит три панели состава токенов завершения с общей шкалой."""
+    group_summaries = [
+        (group, summarize_token_records(records))
+        for group, records in group_token_records
+    ]
+    if not group_summaries or any(summary.empty for _, summary in group_summaries):
+        return
+
+    max_height = 0.0
+    for _, summary in group_summaries:
+        totals = summary["reasoning_completion_tokens"] + summary["raw_completion_tokens"]
+        finite_totals = [float(value) for value in totals.tolist() if math.isfinite(float(value))]
+        if finite_totals:
+            max_height = max(max_height, max(finite_totals))
+    if max_height <= 0:
+        max_height = 1.0
+
+    fig, axes = plt.subplots(1, len(group_summaries), figsize=(18, 5.8), sharey=True)
+    axes = list(axes)
+    width = 0.8 / max(len(MODEL_NAMES), 1)
+    variant_positions = list(range(len(VARIANT_NAMES)))
+
+    for panel_index, (ax, (group, summary)) in enumerate(zip(axes, group_summaries)):
+        for model_index, model_name in enumerate(MODEL_NAMES):
+            color = _model_color(MODERN_COLORS, model_name)
+            offset = (model_index - (len(MODEL_NAMES) - 1) / 2) * width
+            x_positions = [position + offset for position in variant_positions]
+            model_summary = (
+                summary[summary["model"] == model_name]
+                .set_index("variant")
+                .reindex(VARIANT_NAMES)
+                .fillna(0.0)
+            )
+            reasoning_values = model_summary["reasoning_completion_tokens"].tolist()
+            raw_values = model_summary["raw_completion_tokens"].tolist()
+            ax.bar(
+                x_positions,
+                reasoning_values,
+                width=width * 0.92,
+                color=color,
+                alpha=0.9,
+                edgecolor="none",
+            )
+            ax.bar(
+                x_positions,
+                raw_values,
+                width=width * 0.92,
+                bottom=reasoning_values,
+                color=color,
+                alpha=0.45,
+                edgecolor="none",
+            )
+
+        ax.set_title(
+            _plan_length_group_label(group, russian=russian),
+            pad=8,
+            fontsize=12,
+            fontweight="bold",
+            color="#333333",
+        )
+        ax.set_ylabel(
+            ("Токены завершения" if russian else "Completion tokens") if panel_index == 0 else "",
+            fontsize=10,
+            color="#555555",
+        )
+        ax.set_xlabel("")
+        ax.set_xticks(variant_positions)
+        ax.set_xticklabels(
+            [_variant_label(variant_name, russian=russian) for variant_name in VARIANT_NAMES],
+            color="#333333",
+        )
+        ax.tick_params(axis="y", labelleft=panel_index == 0, colors="#333333")
+        _apply_modern_style(ax)
+        ax.set_ylim(0, max_height * 1.05)
+
+    fig.legend(
+        handles=[
+            Patch(
+                facecolor="#666666",
+                alpha=0.9,
+                label="Токены рассуждений" if russian else "Reasoning tokens",
+            ),
+            Patch(
+                facecolor="#666666",
+                alpha=0.45,
+                label="Токены исходного ответа" if russian else "Raw answer tokens",
+            ),
+        ],
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.995),
+        ncol=2,
+        frameon=False,
+        fontsize=10,
+        columnspacing=1.2,
+        handletextpad=0.5,
+    )
+    _add_compact_figure_model_legend(fig, russian=russian, y=0.94)
+    fig.suptitle(
+        _token_breakdown_title(russian=russian),
+        y=0.84,
+        fontsize=14,
+        fontweight="bold",
+        color="#333333",
+    )
+    fig.subplots_adjust(left=0.07, right=0.99, bottom=0.13, top=0.68, wspace=0.12)
+    fig.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _build_combined_plan_length_group_graphs(
+    group_record_sets: list[tuple[PlanLengthGroup, pd.DataFrame]],
+    output_dir: Path,
+    *,
+    russian: bool,
+) -> None:
+    """Создаёт в `groups/all` общий 1×3 вариант графиков групп 1–3."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for metric in METRICS:
+        group_metric_records = [
+            (group, _metric_subset(records, metric))
+            for group, records in group_record_sets
+        ]
+        if any(records.empty for _, records in group_metric_records):
+            continue
+
+        _plot_plan_length_group_bar_panels(
+            group_metric_records,
+            metric,
+            output_dir / f"{metric['slug']}_by_order_barplot.png",
+            russian=russian,
+        )
+        _plot_plan_length_group_confidence_intervals(
+            group_metric_records,
+            metric,
+            output_dir / f"{metric['slug']}_by_order_confidence_intervals.png",
+            russian=russian,
+        )
+
+    group_token_records = [
+        (group, _token_breakdown_subset(records))
+        for group, records in group_record_sets
+    ]
+    if not any(records.empty for _, records in group_token_records):
+        _plot_plan_length_group_token_breakdown(
+            group_token_records,
+            output_dir / "completion_token_breakdown_by_order_barplot.png",
+            russian=russian,
+        )
+
+
 def _confidence_interval_table(records: pd.DataFrame) -> pd.DataFrame:
     rows: list[dict] = []
     if records.empty:
@@ -1163,17 +1611,25 @@ def _build_plan_length_group_graphs(
     groups_dir.mkdir(parents=True, exist_ok=True)
     _write_plan_length_groups_readme(groups_dir, russian=russian)
 
+    group_record_sets: list[tuple[PlanLengthGroup, pd.DataFrame]] = []
     for group in PLAN_LENGTH_GROUPS:
         group_dir = groups_dir / group.group_id
         group_dir.mkdir(parents=True, exist_ok=True)
         group_problem_ids = set(problem_ids_in_plan_length_group(group))
         group_records = domain_records[domain_records["problem"].isin(group_problem_ids)].copy()
+        group_record_sets.append((group, group_records))
         _build_aggregate_graphs(
             group_records,
             group_dir,
             russian=russian,
             scope_label=_plan_length_group_label(group, russian=russian),
         )
+
+    _build_combined_plan_length_group_graphs(
+        group_record_sets,
+        groups_dir / ALL_GROUPS_GRAPH_DIR_NAME,
+        russian=russian,
+    )
 
 
 def _build_graph_set(

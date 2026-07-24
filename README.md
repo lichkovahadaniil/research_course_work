@@ -219,19 +219,21 @@ materials/logistics/graph/
 │   │   └── p1/ … p20/         # Graphs and table for each problem
 │   └── groups/
 │       ├── README.md           # English group definitions
-│       └── 1/ … 3/             # Aggregate artifacts for each length group
+│       ├── 1/ … 3/             # Aggregate artifacts for each length group
+│       └── all/                 # Three-panel comparison of groups 1–3
 └── report/
     ├── means/                 # Same aggregate graphs, fully in Russian
     ├── cross_problem/
     │   └── p1/ … p20/         # Same per-problem graphs, fully in Russian
     └── groups/
         ├── README.md           # Russian group definitions
-        └── 1/ … 3/             # Same grouped aggregates, fully in Russian
+        ├── 1/ … 3/             # Same grouped aggregates, fully in Russian
+        └── all/                 # Same three-panel comparisons in Russian
 ```
 
 `report/` uses `№0`–`№6` for the action orders and displays models as `DeepSeek V4`, `GPT-OSS-120B`, and `Nemotron 3 super`. CSV files retain raw identifiers and numeric values so both trees contain the same results.
 
-`means/` aggregates all 20 problems. `groups/` contains the same aggregate artifact set, restricted by the number of actions in the reference plan: group `1` is 0–16 actions (`p1`, `p2`, `p8`–`p12`), group `2` is 17–34 (`p3`, `p4`, `p13`–`p17`), and group `3` is 35–53 (`p5`–`p7`, `p18`–`p20`). See the locale-specific `groups/README.md` for the complete task-to-length mapping.
+`means/` aggregates all 20 problems. `groups/` contains the same aggregate artifact set, restricted by the number of actions in the reference plan: group `1` is 0–16 actions (`p1`, `p2`, `p8`–`p12`), group `2` is 17–34 (`p3`, `p4`, `p13`–`p17`), and group `3` is 35–53 (`p5`–`p7`, `p18`–`p20`). `groups/all/` contains one three-panel comparison (groups 1–3, left to right) for each graph type; it adds no new aggregation or CSV data. See the locale-specific `groups/README.md` for the complete task-to-length mapping.
 
 Statistical-test outputs are written to:
 

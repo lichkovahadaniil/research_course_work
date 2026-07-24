@@ -572,6 +572,31 @@ def test_build_reports_writes_technical_and_russian_graph_sets(tmp_path, monkeyp
             assert (group_dir / "confidence_intervals_by_order.csv").exists()
             assert (group_dir / "completion_token_breakdown_by_order_barplot.png").exists()
 
+        group_png_names = {
+            path.name
+            for path in (groups_dir / "1").glob("*.png")
+        }
+        assert group_png_names == {
+            path.name
+            for path in (groups_dir / "2").glob("*.png")
+        } == {
+            path.name
+            for path in (groups_dir / "3").glob("*.png")
+        }
+        all_dir = groups_dir / "all"
+        assert all_dir.is_dir()
+        assert {path.name for path in all_dir.glob("*.png")} == group_png_names
+        assert not list(all_dir.glob("*.csv"))
+        assert (all_dir / "plan_length_by_order_barplot.png").stat().st_size > 0
+        assert (all_dir / "plan_length_by_order_confidence_intervals.png").stat().st_size > 0
+        assert (all_dir / "completion_token_breakdown_by_order_barplot.png").stat().st_size > 0
+
+        combined_image = plot_metrics.plt.imread(all_dir / "plan_length_by_order_barplot.png")
+        single_group_image = plot_metrics.plt.imread(
+            groups_dir / "1" / "plan_length_by_order_barplot.png"
+        )
+        assert combined_image.shape[1] > single_group_image.shape[1] * 1.4
+
     assert "# Reference-plan-length groups" in (tech_groups_dir / "README.md").read_text(encoding="utf-8")
     assert "# Группы по длине эталонного плана" in (report_groups_dir / "README.md").read_text(
         encoding="utf-8"

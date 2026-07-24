@@ -1,6 +1,7 @@
 # Reference-plan-length groups
 
 Each numbered directory contains the same aggregate plots and confidence-interval table as `../means`, restricted to problems in the group's inclusive reference-plan-length range.
+The `all` directory contains one combined image per graph type: its three panels show groups 1, 2, and 3 from left to right. It is a visual comparison of the already calculated groups only.
 Aggregation uses saved run-level results; metric eligibility rules and confidence-interval methods are unchanged.
 
 | Group | Reference-plan actions | Problem count | Problems |
