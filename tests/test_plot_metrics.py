@@ -1,6 +1,14 @@
 import json
 
-from experiment_config import MODEL_NAMES, ProblemRef
+from experiment_config import (
+    MODEL_NAMES,
+    PLAN_LENGTH_GROUPS,
+    PROBLEM_IDS,
+    REFERENCE_PLAN_ACTION_COUNTS_BY_ID,
+    ProblemRef,
+    plan_length_group_for_problem,
+    problem_ids_in_plan_length_group,
+)
 import plot_metrics
 from plot_metrics import (
     MODERN_COLORS,
@@ -50,6 +58,27 @@ def test_palette_expands_without_reusing_colors() -> None:
     assert len({color.lower() for color in palette}) == 4
 
 
+def test_plan_length_groups_partition_configured_problems() -> None:
+    grouped_problem_ids = [
+        problem_id
+        for group in PLAN_LENGTH_GROUPS
+        for problem_id in problem_ids_in_plan_length_group(group)
+    ]
+
+    assert set(REFERENCE_PLAN_ACTION_COUNTS_BY_ID) == set(PROBLEM_IDS)
+    assert len(grouped_problem_ids) == len(PROBLEM_IDS)
+    assert set(grouped_problem_ids) == set(PROBLEM_IDS)
+    assert [
+        len(problem_ids_in_plan_length_group(group))
+        for group in PLAN_LENGTH_GROUPS
+    ] == [7, 7, 6]
+    assert plan_length_group_for_problem("p12").group_id == "1"
+    assert plan_length_group_for_problem("p13").group_id == "2"
+    assert plan_length_group_for_problem("p4").group_id == "2"
+    assert plan_length_group_for_problem("p5").group_id == "3"
+    assert plan_length_group_for_problem("p7").group_id == "3"
+
+
 def test_problem_variant_bar_uses_unique_color_per_model(tmp_path, monkeypatch) -> None:
     import pandas as pd
     from matplotlib.colors import to_hex
@@ -94,9 +123,12 @@ def test_russian_problem_variant_bar_uses_report_labels(tmp_path, monkeypatch) -
     def capture_savefig(*args, **kwargs) -> None:
         ax = plot_metrics.plt.gcf().axes[0]
         captured["xlabel"] = ax.get_xlabel()
+        captured["ylabel"] = ax.get_ylabel()
+        captured["title"] = ax.get_title()
         captured["ticks"] = [tick.get_text() for tick in ax.get_xticklabels()]
         captured["legend"] = [text.get_text() for text in ax.get_legend().get_texts()]
         captured["legend_title"] = ax.get_legend().get_title().get_text()
+        captured["texts"] = [text.get_text() for text in ax.texts]
 
     monkeypatch.setattr(plot_metrics.plt, "savefig", capture_savefig)
     frame = pd.DataFrame(
@@ -118,10 +150,13 @@ def test_russian_problem_variant_bar_uses_report_labels(tmp_path, monkeypatch) -
         russian=True,
     )
 
-    assert captured["xlabel"] == "Порядок действий"
+    assert captured["xlabel"] == ""
+    assert captured["ylabel"] == "Значение метрики"
+    assert captured["title"] == "Длина плана"
     assert captured["ticks"] == ["№0", "№1", "№2", "№3", "№4", "№5", "№6"]
     assert captured["legend"] == ["DeepSeek V4", "GPT-OSS-120B", "Nemotron 3 super"]
-    assert captured["legend_title"] == "Модели"
+    assert captured["legend_title"] == ""
+    assert captured["texts"] == []
 
 
 def test_build_records_uses_new_metrics_only(tmp_path, monkeypatch) -> None:
@@ -359,13 +394,18 @@ def test_summarize_confidence_intervals_calculates_numeric_and_rate_intervals() 
     assert 2 / 3 < rate_summary["ci95_high"].iloc[0] <= 1
 
 
-def test_confidence_interval_plot_has_no_value_or_sample_size_annotations(tmp_path, monkeypatch) -> None:
+def test_confidence_interval_plot_has_compact_labels_and_no_annotations(tmp_path, monkeypatch) -> None:
     import pandas as pd
 
-    captured: dict[str, list[str]] = {}
+    captured: dict[str, object] = {}
 
     def capture_savefig(*args, **kwargs) -> None:
-        captured["texts"] = [text.get_text() for text in plot_metrics.plt.gca().texts]
+        ax = plot_metrics.plt.gcf().axes[0]
+        captured["texts"] = [text.get_text() for text in ax.texts]
+        captured["xlabel"] = ax.get_xlabel()
+        captured["ylabel"] = ax.get_ylabel()
+        captured["title"] = ax.get_title()
+        captured["legend_title"] = ax.get_legend().get_title().get_text()
 
     monkeypatch.setattr(plot_metrics.plt, "savefig", capture_savefig)
     frame = pd.DataFrame(
@@ -379,14 +419,87 @@ def test_confidence_interval_plot_has_no_value_or_sample_size_annotations(tmp_pa
         frame,
         {"slug": "reachability", "title": "Reachability", "rate": True},
         tmp_path / "plot.png",
-        "95% CI: Reachability",
+        "Reachability",
     )
 
     assert captured["texts"] == []
+    assert captured["xlabel"] == "Metric value"
+    assert captured["ylabel"] == ""
+    assert captured["title"] == "Reachability"
+    assert captured["legend_title"] == ""
+
+
+def test_token_breakdown_plot_has_no_stack_percentage_annotations(tmp_path, monkeypatch) -> None:
+    import pandas as pd
+    from matplotlib.legend import Legend
+
+    captured: dict[str, object] = {}
+
+    def capture_savefig(*args, **kwargs) -> None:
+        ax = plot_metrics.plt.gcf().axes[0]
+        captured["texts"] = [text.get_text() for text in ax.texts]
+        captured["xlabel"] = ax.get_xlabel()
+        captured["ylabel"] = ax.get_ylabel()
+        captured["legend_titles"] = [
+            child.get_title().get_text()
+            for child in ax.get_children()
+            if isinstance(child, Legend)
+        ]
+
+    monkeypatch.setattr(plot_metrics.plt, "savefig", capture_savefig)
+    frame = pd.DataFrame(
+        [
+            {
+                "variant": "canonical",
+                "model": TEST_MODEL,
+                "completion_tokens": 100,
+                "reasoning_completion_tokens": 60,
+                "raw_completion_tokens": 40,
+            }
+        ]
+    )
+
+    plot_metrics._plot_problem_token_breakdown(
+        frame,
+        tmp_path / "plot.png",
+        "Completion Token Breakdown",
+    )
+
+    assert captured["texts"] == []
+    assert captured["xlabel"] == ""
+    assert captured["ylabel"] == "Completion tokens"
+    assert captured["legend_titles"] == ["", ""]
 
 
 def test_build_reports_writes_technical_and_russian_graph_sets(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
+    for problem_id, plan_length in [("p1", 11), ("p3", 13)]:
+        write_result(
+            tmp_path,
+            "logistics",
+            "alpha",
+            problem_id,
+            "canonical",
+            1,
+            TEST_MODEL,
+            {
+                "strict": {
+                    "plan_length": plan_length,
+                    "executability": True,
+                    "reachability": True,
+                    "first_failure_step": None,
+                    "non_executable_failure": None,
+                },
+                "legacy": {
+                    "optimality_ratio": 1.0,
+                },
+            },
+            {
+                "completion_tokens": 150,
+                "reasoning_completion_tokens": 120,
+                "raw_completion_tokens": 30,
+            },
+        )
     write_result(
         tmp_path,
         "logistics",
@@ -414,13 +527,22 @@ def test_build_reports_writes_technical_and_russian_graph_sets(tmp_path, monkeyp
         },
     )
 
-    build_reports(["logistics"], [ProblemRef("alpha", "p7")])
+    build_reports(
+        ["logistics"],
+        [
+            ProblemRef("alpha", "p1"),
+            ProblemRef("alpha", "p3"),
+            ProblemRef("alpha", "p7"),
+        ],
+    )
 
     graph_dir = tmp_path / "materials" / "logistics" / "graph"
     tech_problem_dir = graph_dir / "tech" / "cross_problem" / "p7"
     report_problem_dir = graph_dir / "report" / "cross_problem" / "p7"
     tech_means_dir = graph_dir / "tech" / "means"
     report_means_dir = graph_dir / "report" / "means"
+    tech_groups_dir = graph_dir / "tech" / "groups"
+    report_groups_dir = graph_dir / "report" / "groups"
 
     for problem_dir in [tech_problem_dir, report_problem_dir]:
         assert (problem_dir / "plan_length_barplot.png").exists()
@@ -440,6 +562,35 @@ def test_build_reports_writes_technical_and_russian_graph_sets(tmp_path, monkeyp
     assert (tech_means_dir / "confidence_intervals_by_order.csv").read_bytes() == (
         report_means_dir / "confidence_intervals_by_order.csv"
     ).read_bytes()
+
+    for groups_dir in [tech_groups_dir, report_groups_dir]:
+        assert (groups_dir / "README.md").exists()
+        for group_id in ["1", "2", "3"]:
+            group_dir = groups_dir / group_id
+            assert (group_dir / "plan_length_by_order_barplot.png").exists()
+            assert (group_dir / "plan_length_by_order_confidence_intervals.png").exists()
+            assert (group_dir / "confidence_intervals_by_order.csv").exists()
+            assert (group_dir / "completion_token_breakdown_by_order_barplot.png").exists()
+
+    assert "# Reference-plan-length groups" in (tech_groups_dir / "README.md").read_text(encoding="utf-8")
+    assert "# Группы по длине эталонного плана" in (report_groups_dir / "README.md").read_text(
+        encoding="utf-8"
+    )
+
+    import pandas as pd
+
+    for group_id, expected_mean in [("1", 11), ("2", 13), ("3", 3)]:
+        tech_group_table = pd.read_csv(tech_groups_dir / group_id / "confidence_intervals_by_order.csv")
+        plan_length_row = tech_group_table[
+            (tech_group_table["metric"] == "plan_length")
+            & (tech_group_table["variant"] == "canonical")
+            & (tech_group_table["model"] == TEST_MODEL)
+        ].iloc[0]
+        assert plan_length_row["mean"] == expected_mean
+        assert (tech_groups_dir / group_id / "confidence_intervals_by_order.csv").read_bytes() == (
+            report_groups_dir / group_id / "confidence_intervals_by_order.csv"
+        ).read_bytes()
+
     assert not (graph_dir / "alpha").exists()
     assert not (graph_dir / "design").exists()
     assert not (graph_dir / "plan_length_by_order_barplot.png").exists()

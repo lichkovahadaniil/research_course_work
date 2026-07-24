@@ -15,10 +15,14 @@ from matplotlib.ticker import PercentFormatter
 
 from experiment_config import (
     MODEL_NAMES,
+    PLAN_LENGTH_GROUPS,
     PROBLEM_TYPE_BY_ID,
     PROBLEM_TYPE_LABELS,
     PROBLEM_TYPE_ORDER,
+    REFERENCE_PLAN_ACTION_COUNTS_BY_ID,
+    PlanLengthGroup,
     ProblemRef,
+    problem_ids_in_plan_length_group,
 )
 from manual_model_run import model_output_dir_name
 from shuffler import VARIANT_NAMES
@@ -188,12 +192,12 @@ MODERN_COLORS = [
     "#FFB5B8",
     "#777777",
 ]
-CONFIDENCE_LEVEL_LABEL = "95%"
 NORMAL_95_Z = 1.959963984540054
 TECH_GRAPH_DIR_NAME = "tech"
 REPORT_GRAPH_DIR_NAME = "report"
 MEANS_GRAPH_DIR_NAME = "means"
 CROSS_PROBLEM_GRAPH_DIR_NAME = "cross_problem"
+GROUPS_GRAPH_DIR_NAME = "groups"
 REPORT_VARIANT_LABELS = {
     "canonical": "№0",
     "disp_1": "№1",
@@ -310,24 +314,23 @@ def _apply_modern_style(ax):
     ax.grid(axis='x', visible=False)
     ax.set_axisbelow(True) # Сетка прячется за столбцами
 
-def _add_value_labels(ax, is_rate: bool):
-    """Добавляет цифры над каждым столбцом."""
-    for p in ax.patches:
-        height = p.get_height()
-        if not math.isfinite(height) or abs(height) <= 0.001:
-            continue
-        if is_rate:
-            text = f"{height:.0%}" # Формат 85%
-        else:
-            text = f"{int(height)}" if height.is_integer() else f"{height:.1f}"
+def _add_compact_model_legend(ax) -> None:
+    """Добавляет краткую легенду моделей без дублирующего заголовка."""
+    handles, labels = ax.get_legend_handles_labels()
+    if not handles:
+        return
 
-        ax.annotate(text,
-                    (p.get_x() + p.get_width() / 2., height),
-                    ha='center', va='bottom',
-                    xytext=(0, 4), # Сдвиг на 4 пикселя вверх
-                    textcoords='offset points',
-                    fontsize=9,
-                    color='#444444')
+    ax.legend(
+        handles=handles,
+        labels=labels,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 1.10),
+        ncol=min(len(labels), 3),
+        frameon=False,
+        fontsize=10,
+        columnspacing=1.2,
+        handletextpad=0.5,
+    )
 
 
 def _t_critical_95(df: int) -> float:
@@ -583,45 +586,67 @@ def _metric_display_title(metric: dict, *, russian: bool) -> str:
     return metric["title"]
 
 
-def _metric_title(metric: dict, coverage_ratio: float, *, russian: bool = False) -> str:
-    title = _metric_display_title(metric, russian=russian)
-    subset = metric.get("subset")
-    if russian:
-        if subset == "reachable":
-            return f"{title} (только планы, достигшие цели; {coverage_ratio:.0%})"
-        if subset == "executable":
-            return f"{title} (только исполнимые планы; {coverage_ratio:.0%})"
-        if subset == "failure_step":
-            return f"{title} (доступные значения; {coverage_ratio:.0%})"
-        return f"{title} ({coverage_ratio:.0%})"
-    if subset == "reachable":
-        return f"{title} (only reachable, {coverage_ratio:.0%})"
-    if subset == "executable":
-        return f"{title} (only executable plans, {coverage_ratio:.0%})"
-    if subset == "failure_step":
-        return f"{title} (available, {coverage_ratio:.0%})"
-    return f"{title} ({coverage_ratio:.0%})"
+def _chart_title(title: str, scope_label: str = "") -> str:
+    """Оставляет в заголовке только метрику и необходимый короткий контекст."""
+    return f"{title} — {scope_label}" if scope_label else title
 
 
-def _metric_ylabel(metric: dict, *, russian: bool = False) -> str:
+def _metric_value_axis_label(*, russian: bool) -> str:
+    return "Значение метрики" if russian else "Metric value"
+
+
+def _token_breakdown_title(*, russian: bool = False) -> str:
     if russian:
-        return REPORT_METRIC_LABELS.get(metric["slug"], {}).get(
-            "ylabel",
-            _metric_display_title(metric, russian=True),
+        return "Структура токенов завершения"
+    return "Completion Token Breakdown"
+
+
+def _plan_length_group_label(group: PlanLengthGroup, *, russian: bool) -> str:
+    if russian:
+        return f"Группа {group.group_id}"
+    return f"Group {group.group_id}"
+
+
+def _plan_length_groups_markdown(*, russian: bool) -> str:
+    if russian:
+        lines = [
+            "# Группы по длине эталонного плана",
+            "",
+            "Каждая нумерованная папка содержит тот же набор агрегированных графиков и таблицу доверительных интервалов, что и `../means`, но только для задач из соответствующего включительного диапазона длины эталонного плана.",
+            "Агрегация использует сохранённые результаты отдельных запусков; правила отбора метрик и методы доверительных интервалов не меняются.",
+            "",
+            "| Группа | Действий в эталонном плане | Количество задач | Задачи |",
+            "| --- | ---: | ---: | --- |",
+        ]
+    else:
+        lines = [
+            "# Reference-plan-length groups",
+            "",
+            "Each numbered directory contains the same aggregate plots and confidence-interval table as `../means`, restricted to problems in the group's inclusive reference-plan-length range.",
+            "Aggregation uses saved run-level results; metric eligibility rules and confidence-interval methods are unchanged.",
+            "",
+            "| Group | Reference-plan actions | Problem count | Problems |",
+            "| --- | ---: | ---: | --- |",
+        ]
+
+    for group in PLAN_LENGTH_GROUPS:
+        group_problem_ids = problem_ids_in_plan_length_group(group)
+        problem_descriptions = ", ".join(
+            f"`{problem_id}` ({REFERENCE_PLAN_ACTION_COUNTS_BY_ID[problem_id]})"
+            for problem_id in group_problem_ids
         )
-    return metric.get("ylabel", f"Average {metric['title']}")
+        problem_count = len(group_problem_ids)
+        lines.append(
+            f"| {group.group_id} | {group.min_actions}–{group.max_actions} | {problem_count} | {problem_descriptions} |"
+        )
+    return "\n".join(lines) + "\n"
 
 
-def _token_breakdown_title(coverage_ratio: float, *, russian: bool = False) -> str:
-    if russian:
-        return f"Структура токенов завершения ({coverage_ratio:.0%})"
-    return f"Completion Token Breakdown ({coverage_ratio:.0%})"
-
-
-def _problem_label(problem_ref: ProblemRef, *, russian: bool) -> str:
-    if russian:
-        return f"Задача {problem_ref.problem}"
-    return problem_ref.label
+def _write_plan_length_groups_readme(groups_dir: Path, *, russian: bool) -> None:
+    (groups_dir / "README.md").write_text(
+        _plan_length_groups_markdown(russian=russian),
+        encoding="utf-8",
+    )
 
 
 def _plot_problem_variant_bar(
@@ -654,29 +679,23 @@ def _plot_problem_variant_bar(
         edgecolor="none",
     )
 
-    ax.set_title(title, pad=20, fontsize=14, fontweight="bold", color="#333333")
-    ax.set_ylabel(_metric_ylabel(metric, russian=russian), fontsize=11, color="#555555")
-    ax.set_xlabel("Порядок действий" if russian else "Variant", fontsize=11, color="#555555")
+    ax.set_title(title, pad=8, fontsize=13, fontweight="bold", color="#333333")
+    ax.set_ylabel(_metric_value_axis_label(russian=russian), fontsize=10, color="#555555")
+    ax.set_xlabel("")
 
     _apply_modern_style(ax)
-    _add_value_labels(ax, is_rate=metric["rate"])
-    ax.legend(
-        title="Модели" if russian else "Models",
-        bbox_to_anchor=(1.02, 1),
-        loc="upper left",
-        frameon=False,
-        title_fontsize="12",
-    )
+    _add_compact_model_legend(ax)
 
     if metric["rate"]:
-        ax.set_ylim(0, 1.15)
+        ax.set_ylim(0, 1.05)
         ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
     else:
-        ax.set_ylim(0, ax.get_ylim()[1] * 1.15)
+        ax.set_ylim(0, ax.get_ylim()[1] * 1.05)
 
     plt.xticks(rotation=0, color="#333333")
     plt.yticks(color="#333333")
     plt.tight_layout()
+    ax.get_figure().subplots_adjust(top=0.80)
 
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
@@ -740,8 +759,8 @@ def _plot_confidence_intervals(
     if not variants or not models:
         return
 
-    fig_height = max(4.8, 1.0 + len(variants) * 0.78)
-    fig, ax = plt.subplots(figsize=(11.5, fig_height))
+    fig_height = max(4.5, 0.9 + len(variants) * 0.72)
+    fig, ax = plt.subplots(figsize=(10.5, fig_height))
     variant_positions = {variant_name: index for index, variant_name in enumerate(variants)}
     model_offset_step = 0.22 if len(models) > 1 else 0.0
 
@@ -792,9 +811,9 @@ def _plot_confidence_intervals(
             zorder=3,
         )
 
-    ax.set_title(title, pad=18, fontsize=14, fontweight="bold", color="#333333")
-    ax.set_xlabel(_metric_ylabel(metric, russian=russian), fontsize=11, color="#555555")
-    ax.set_ylabel("Порядок действий" if russian else "Variant", fontsize=11, color="#555555")
+    ax.set_title(title, pad=8, fontsize=13, fontweight="bold", color="#333333")
+    ax.set_xlabel(_metric_value_axis_label(russian=russian), fontsize=10, color="#555555")
+    ax.set_ylabel("")
     ax.set_yticks(list(variant_positions.values()))
     ax.set_yticklabels(
         [_variant_label(variant_name, russian=russian) for variant_name in variants],
@@ -804,14 +823,8 @@ def _plot_confidence_intervals(
     _set_interval_xlim(ax, summary, metric)
     _apply_interval_style(ax)
 
-    ax.legend(
-        title="Модели" if russian else "Models",
-        bbox_to_anchor=(1.02, 1),
-        loc="upper left",
-        frameon=False,
-        title_fontsize="12",
-    )
-    fig.subplots_adjust(right=0.78, bottom=0.12)
+    _add_compact_model_legend(ax)
+    fig.subplots_adjust(right=0.96, top=0.84, bottom=0.12)
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
@@ -866,9 +879,9 @@ def _plot_problem_type_bar(frame: pd.DataFrame, metric: dict, output_path: Path,
             label=model_name,
         )
 
-    ax.set_title(title, pad=20, fontsize=14, fontweight="bold", color="#333333")
-    ax.set_ylabel(_metric_ylabel(metric), fontsize=11, color="#555555")
-    ax.set_xlabel("Problem type / order", fontsize=11, color="#555555")
+    ax.set_title(title, pad=8, fontsize=13, fontweight="bold", color="#333333")
+    ax.set_ylabel(_metric_value_axis_label(russian=False), fontsize=10, color="#555555")
+    ax.set_xlabel("")
     ax.set_xticks(cluster_positions)
     ax.set_xticklabels([variant_name for _, variant_name in clusters], rotation=45, ha="right")
 
@@ -889,16 +902,16 @@ def _plot_problem_type_bar(frame: pd.DataFrame, metric: dict, output_path: Path,
         )
 
     _apply_modern_style(ax)
-    ax.legend(title="Models", bbox_to_anchor=(1.02, 1), loc="upper left", frameon=False, title_fontsize="12")
+    _add_compact_model_legend(ax)
 
     if metric["rate"]:
-        ax.set_ylim(0, 1.15)
+        ax.set_ylim(0, 1.05)
         ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
     else:
-        ax.set_ylim(0, max_height * 1.15 if max_height > 0 else 1.0)
+        ax.set_ylim(0, max_height * 1.05 if max_height > 0 else 1.0)
 
     plt.yticks(color="#333333")
-    fig.subplots_adjust(bottom=0.28, right=0.84)
+    fig.subplots_adjust(bottom=0.28, top=0.80)
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
@@ -925,23 +938,23 @@ def _plot_single_problem_type_bar(
         edgecolor="none",
     )
 
-    ax.set_title(title, pad=18, fontsize=13, fontweight="bold", color="#333333")
-    ax.set_ylabel(_metric_ylabel(metric), fontsize=11, color="#555555")
-    ax.set_xlabel("Order", fontsize=11, color="#555555")
+    ax.set_title(title, pad=8, fontsize=13, fontweight="bold", color="#333333")
+    ax.set_ylabel(_metric_value_axis_label(russian=False), fontsize=10, color="#555555")
+    ax.set_xlabel("")
 
     _apply_modern_style(ax)
-    _add_value_labels(ax, is_rate=metric["rate"])
 
     if metric["rate"]:
-        ax.set_ylim(0, 1.15)
+        ax.set_ylim(0, 1.05)
         ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
     else:
-        ax.set_ylim(0, ax.get_ylim()[1] * 1.15)
+        ax.set_ylim(0, ax.get_ylim()[1] * 1.05)
 
-    ax.legend(title="Models", bbox_to_anchor=(1.02, 1), loc="upper left", frameon=False, title_fontsize="12")
+    _add_compact_model_legend(ax)
     plt.xticks(rotation=0, color="#333333")
     plt.yticks(color="#333333")
     plt.tight_layout()
+    ax.get_figure().subplots_adjust(top=0.80)
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
 
@@ -952,19 +965,6 @@ def _token_breakdown_subset(records: pd.DataFrame) -> pd.DataFrame:
         & records["reasoning_completion_tokens"].notna()
         & records["raw_completion_tokens"].notna()
     ].copy()
-
-
-def _add_token_share_label(ax, x: float, y: float, share: float, color: str) -> None:
-    ax.text(
-        x,
-        y,
-        f"{share:.0%}",
-        ha="center",
-        va="center",
-        fontsize=8,
-        color=color,
-        fontweight="bold",
-    )
 
 
 def _plot_problem_token_breakdown(
@@ -1004,7 +1004,7 @@ def _plot_problem_token_breakdown(
             for reasoning_value, raw_value in zip(reasoning_values, raw_values)
         ]
 
-        reasoning_bars = ax.bar(
+        ax.bar(
             x_positions,
             reasoning_values,
             width=width * 0.92,
@@ -1012,7 +1012,7 @@ def _plot_problem_token_breakdown(
             alpha=0.9,
             edgecolor="none",
         )
-        raw_bars = ax.bar(
+        ax.bar(
             x_positions,
             raw_values,
             width=width * 0.92,
@@ -1022,44 +1022,18 @@ def _plot_problem_token_breakdown(
             edgecolor="none",
         )
 
-        for reasoning_bar, raw_bar, reasoning_value, raw_value, total_value in zip(
-            reasoning_bars,
-            raw_bars,
-            reasoning_values,
-            raw_values,
-            total_values,
-        ):
-            if not math.isfinite(total_value) or total_value <= 0:
-                continue
-            if reasoning_value > 0:
-                _add_token_share_label(
-                    ax,
-                    reasoning_bar.get_x() + reasoning_bar.get_width() / 2,
-                    reasoning_value / 2,
-                    reasoning_value / total_value,
-                    "white",
-                )
-            if raw_value > 0:
-                _add_token_share_label(
-                    ax,
-                    raw_bar.get_x() + raw_bar.get_width() / 2,
-                    reasoning_value + raw_value / 2,
-                    raw_value / total_value,
-                    "#222222",
-                )
-
         max_height = max(max_height, *(total_values or [0.0]))
         model_handles.append(
             Patch(facecolor=color, alpha=0.9, label=_model_label(model_name, russian=russian))
         )
 
-    ax.set_title(title, pad=20, fontsize=14, fontweight="bold", color="#333333")
+    ax.set_title(title, pad=8, fontsize=13, fontweight="bold", color="#333333")
     ax.set_ylabel(
-        "Среднее число токенов завершения" if russian else "Average completion tokens",
-        fontsize=11,
+        "Токены завершения" if russian else "Completion tokens",
+        fontsize=10,
         color="#555555",
     )
-    ax.set_xlabel("Порядок действий" if russian else "Variant", fontsize=11, color="#555555")
+    ax.set_xlabel("")
     ax.set_xticks(variant_positions)
     ax.set_xticklabels([_variant_label(variant_name, russian=russian) for variant_name in VARIANT_NAMES])
 
@@ -1067,11 +1041,13 @@ def _plot_problem_token_breakdown(
 
     model_legend = ax.legend(
         handles=model_handles,
-        title="Модели" if russian else "Models",
-        bbox_to_anchor=(1.02, 1),
-        loc="upper left",
+        bbox_to_anchor=(0.5, 1.10),
+        loc="lower center",
+        ncol=min(len(model_handles), 3),
         frameon=False,
-        title_fontsize="12",
+        fontsize=10,
+        columnspacing=1.2,
+        handletextpad=0.5,
     )
     ax.add_artist(model_legend)
     ax.legend(
@@ -1087,17 +1063,20 @@ def _plot_problem_token_breakdown(
                 label="Токены исходного ответа" if russian else "Raw answer tokens",
             ),
         ],
-        title="Тип токенов" if russian else "Token Type",
-        bbox_to_anchor=(1.02, 0.7),
-        loc="upper left",
+        bbox_to_anchor=(0.5, 1.19),
+        loc="lower center",
+        ncol=2,
         frameon=False,
-        title_fontsize="12",
+        fontsize=10,
+        columnspacing=1.2,
+        handletextpad=0.5,
     )
 
-    ax.set_ylim(0, max_height * 1.12 if max_height > 0 else 1.0)
+    ax.set_ylim(0, max_height * 1.05 if max_height > 0 else 1.0)
     plt.xticks(rotation=0, color="#333333")
     plt.yticks(color="#333333")
     plt.tight_layout()
+    fig.subplots_adjust(top=0.72)
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
@@ -1125,6 +1104,78 @@ def _write_confidence_interval_table(records: pd.DataFrame, output_path: Path) -
     table.to_csv(output_path, index=False)
 
 
+def _build_aggregate_graphs(
+    records: pd.DataFrame,
+    output_dir: Path,
+    *,
+    russian: bool,
+    scope_label: str = "",
+) -> None:
+    if records.empty:
+        return
+
+    for metric in METRICS:
+        metric_records = _metric_subset(records, metric)
+        if metric_records.empty:
+            continue
+
+        metric_title = _chart_title(
+            _metric_display_title(metric, russian=russian),
+            scope_label,
+        )
+        _plot_problem_variant_bar(
+            metric_records,
+            metric,
+            output_dir / f"{metric['slug']}_by_order_barplot.png",
+            metric_title,
+            russian=russian,
+        )
+        _plot_confidence_intervals(
+            metric_records,
+            metric,
+            output_dir / f"{metric['slug']}_by_order_confidence_intervals.png",
+            metric_title,
+            russian=russian,
+        )
+
+    _write_confidence_interval_table(records, output_dir / "confidence_intervals_by_order.csv")
+
+    token_records = _token_breakdown_subset(records)
+    token_title = _chart_title(
+        _token_breakdown_title(russian=russian),
+        scope_label,
+    )
+    _plot_problem_token_breakdown(
+        token_records,
+        output_dir / "completion_token_breakdown_by_order_barplot.png",
+        token_title,
+        russian=russian,
+    )
+
+
+def _build_plan_length_group_graphs(
+    domain_records: pd.DataFrame,
+    output_dir: Path,
+    *,
+    russian: bool,
+) -> None:
+    groups_dir = output_dir / GROUPS_GRAPH_DIR_NAME
+    groups_dir.mkdir(parents=True, exist_ok=True)
+    _write_plan_length_groups_readme(groups_dir, russian=russian)
+
+    for group in PLAN_LENGTH_GROUPS:
+        group_dir = groups_dir / group.group_id
+        group_dir.mkdir(parents=True, exist_ok=True)
+        group_problem_ids = set(problem_ids_in_plan_length_group(group))
+        group_records = domain_records[domain_records["problem"].isin(group_problem_ids)].copy()
+        _build_aggregate_graphs(
+            group_records,
+            group_dir,
+            russian=russian,
+            scope_label=_plan_length_group_label(group, russian=russian),
+        )
+
+
 def _build_graph_set(
     domain_records: pd.DataFrame,
     problem_refs: list[ProblemRef],
@@ -1146,90 +1197,44 @@ def _build_graph_set(
         if problem_records.empty:
             continue
 
-        problem_label = _problem_label(problem_ref, russian=russian)
+        scope_label = problem_ref.problem
         for metric in METRICS:
             metric_records = _metric_subset(problem_records, metric)
-            coverage_ratio = len(metric_records) / len(problem_records)
-            metric_title = _metric_title(metric, coverage_ratio, russian=russian)
+            metric_title = _chart_title(
+                _metric_display_title(metric, russian=russian),
+                scope_label,
+            )
             _plot_problem_variant_bar(
                 metric_records,
                 metric,
                 problem_dir / f"{metric['slug']}_barplot.png",
-                (
-                    f"{metric_title} по порядку действий — {problem_label}"
-                    if russian
-                    else f"{metric_title} by variant - {problem_label}"
-                ),
+                metric_title,
                 russian=russian,
             )
             _plot_confidence_intervals(
                 metric_records,
                 metric,
                 problem_dir / f"{metric['slug']}_confidence_intervals.png",
-                (
-                    f"{CONFIDENCE_LEVEL_LABEL}-й доверительный интервал: {metric_title} — {problem_label}"
-                    if russian
-                    else f"{CONFIDENCE_LEVEL_LABEL} CI: {metric_title} - {problem_label}"
-                ),
+                metric_title,
                 russian=russian,
             )
 
         _write_confidence_interval_table(problem_records, problem_dir / "confidence_intervals.csv")
 
         token_records = _token_breakdown_subset(problem_records)
-        token_coverage_ratio = len(token_records) / len(problem_records)
-        token_title = _token_breakdown_title(token_coverage_ratio, russian=russian)
+        token_title = _chart_title(
+            _token_breakdown_title(russian=russian),
+            scope_label,
+        )
         _plot_problem_token_breakdown(
             token_records,
             problem_dir / "completion_token_breakdown_barplot.png",
-            (
-                f"{token_title} по порядку действий — {problem_label}"
-                if russian
-                else f"{token_title} by variant - {problem_label}"
-            ),
+            token_title,
             russian=russian,
         )
 
-    if domain_records.empty:
-        return
-
-    for metric in METRICS:
-        metric_records = _metric_subset(domain_records, metric)
-        if metric_records.empty:
-            continue
-
-        coverage_ratio = len(metric_records) / len(domain_records)
-        metric_title = _metric_title(metric, coverage_ratio, russian=russian)
-        _plot_problem_variant_bar(
-            metric_records,
-            metric,
-            means_dir / f"{metric['slug']}_by_order_barplot.png",
-            f"{metric_title} по порядку действий" if russian else f"{metric_title} by order",
-            russian=russian,
-        )
-        _plot_confidence_intervals(
-            metric_records,
-            metric,
-            means_dir / f"{metric['slug']}_by_order_confidence_intervals.png",
-            (
-                f"{CONFIDENCE_LEVEL_LABEL}-й доверительный интервал: {metric_title} по порядку действий"
-                if russian
-                else f"{CONFIDENCE_LEVEL_LABEL} CI: {metric_title} by order"
-            ),
-            russian=russian,
-        )
-
-    _write_confidence_interval_table(domain_records, means_dir / "confidence_intervals_by_order.csv")
-
-    token_records = _token_breakdown_subset(domain_records)
-    token_coverage_ratio = len(token_records) / len(domain_records)
-    token_title = _token_breakdown_title(token_coverage_ratio, russian=russian)
-    _plot_problem_token_breakdown(
-        token_records,
-        means_dir / "completion_token_breakdown_by_order_barplot.png",
-        f"{token_title} по порядку действий" if russian else f"{token_title} by order",
-        russian=russian,
-    )
+    _build_aggregate_graphs(domain_records, means_dir, russian=russian)
+    _build_plan_length_group_graphs(domain_records, output_dir, russian=russian)
 
 
 def build_reports(domains: list[str], problem_refs: list[ProblemRef]) -> None:

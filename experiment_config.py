@@ -21,6 +21,16 @@ class ProblemRef:
         return f"{self.task}/{self.problem}"
 
 
+@dataclass(frozen=True)
+class PlanLengthGroup:
+    group_id: str
+    min_actions: int
+    max_actions: int
+
+    def contains(self, action_count: int) -> bool:
+        return self.min_actions <= action_count <= self.max_actions
+
+
 PROBLEM_TYPE_BY_ID = {
     "p1": "s01_l08",
     "p2": "s01_l15",
@@ -48,6 +58,51 @@ PROBLEM_TYPE_LABELS = {
     problem_type: problem_type.upper()
     for problem_type in PROBLEM_TYPE_ORDER
 }
+REFERENCE_PLAN_ACTION_COUNTS_BY_ID = {
+    "p1": 8,
+    "p2": 15,
+    "p3": 22,
+    "p4": 30,
+    "p5": 35,
+    "p6": 47,
+    "p7": 53,
+    "p8": 6,
+    "p9": 9,
+    "p10": 10,
+    "p11": 12,
+    "p12": 14,
+    "p13": 17,
+    "p14": 19,
+    "p15": 24,
+    "p16": 27,
+    "p17": 32,
+    "p18": 38,
+    "p19": 41,
+    "p20": 45,
+}
+PLAN_LENGTH_GROUPS = (
+    PlanLengthGroup("1", 0, 16),
+    PlanLengthGroup("2", 17, 34),
+    PlanLengthGroup("3", 35, 53),
+)
+
+
+def plan_length_group_for_problem(problem_id: str) -> PlanLengthGroup:
+    action_count = REFERENCE_PLAN_ACTION_COUNTS_BY_ID[problem_id]
+    for group in PLAN_LENGTH_GROUPS:
+        if group.contains(action_count):
+            return group
+    raise ValueError(f"no plan-length group configured for {problem_id} ({action_count} actions)")
+
+
+def problem_ids_in_plan_length_group(group: PlanLengthGroup) -> tuple[str, ...]:
+    return tuple(
+        problem_id
+        for problem_id in PROBLEM_IDS
+        if group.contains(REFERENCE_PLAN_ACTION_COUNTS_BY_ID[problem_id])
+    )
+
+
 PROBLEM_REFS = [
     ProblemRef(task_name, problem_id)
     for task_name in TASK_NAMES
