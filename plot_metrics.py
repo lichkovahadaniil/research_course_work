@@ -330,20 +330,6 @@ def _add_value_labels(ax, is_rate: bool):
                     color='#444444')
 
 
-def _format_metric_value(value: float, is_rate: bool) -> str:
-    if not math.isfinite(value):
-        return ""
-    if is_rate:
-        return f"{value:.0%}"
-    if abs(value) >= 1000:
-        return f"{value:,.0f}"
-    if float(value).is_integer():
-        return f"{int(value)}"
-    if abs(value) >= 10:
-        return f"{value:.1f}"
-    return f"{value:.2f}"
-
-
 def _t_critical_95(df: int) -> float:
     if df <= 0:
         return 0.0
@@ -786,17 +772,6 @@ def _plot_confidence_intervals(
             y_values.append(y)
             xerr_low.append(max(0.0, mean - ci_low))
             xerr_high.append(max(0.0, ci_high - mean))
-            ax.annotate(
-                f"{_format_metric_value(mean, metric['rate'])}  n={row.n}",
-                (ci_high, y),
-                xytext=(7, 0),
-                textcoords="offset points",
-                ha="left",
-                va="center",
-                fontsize=8.5,
-                color="#333333",
-                clip_on=False,
-            )
 
         if not x_values:
             continue
@@ -836,21 +811,7 @@ def _plot_confidence_intervals(
         frameon=False,
         title_fontsize="12",
     )
-    ax.text(
-        0,
-        -0.14,
-        (
-            f"Точка — среднее значение; отрезок — {CONFIDENCE_LEVEL_LABEL}-й доверительный интервал."
-            if russian
-            else f"Dot = mean; whisker = {CONFIDENCE_LEVEL_LABEL} confidence interval."
-        ),
-        transform=ax.transAxes,
-        ha="left",
-        va="top",
-        fontsize=9,
-        color="#666666",
-    )
-    fig.subplots_adjust(right=0.78, bottom=0.18)
+    fig.subplots_adjust(right=0.78, bottom=0.12)
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 

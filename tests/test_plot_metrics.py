@@ -359,6 +359,32 @@ def test_summarize_confidence_intervals_calculates_numeric_and_rate_intervals() 
     assert 2 / 3 < rate_summary["ci95_high"].iloc[0] <= 1
 
 
+def test_confidence_interval_plot_has_no_value_or_sample_size_annotations(tmp_path, monkeypatch) -> None:
+    import pandas as pd
+
+    captured: dict[str, list[str]] = {}
+
+    def capture_savefig(*args, **kwargs) -> None:
+        captured["texts"] = [text.get_text() for text in plot_metrics.plt.gca().texts]
+
+    monkeypatch.setattr(plot_metrics.plt, "savefig", capture_savefig)
+    frame = pd.DataFrame(
+        [
+            {"variant": "canonical", "model": TEST_MODEL, "reachability": 1.0},
+            {"variant": "canonical", "model": TEST_MODEL, "reachability": 0.0},
+        ]
+    )
+
+    plot_metrics._plot_confidence_intervals(
+        frame,
+        {"slug": "reachability", "title": "Reachability", "rate": True},
+        tmp_path / "plot.png",
+        "95% CI: Reachability",
+    )
+
+    assert captured["texts"] == []
+
+
 def test_build_reports_writes_technical_and_russian_graph_sets(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     write_result(
